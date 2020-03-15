@@ -14,4 +14,13 @@ setup(
     description='A latent structure inference library',
     long_description=long_description,
     python_requires='>=3.7',
+    install_requires=[
+        'numpy',
+    ],
+    extras_require={
+        'dev': [
+            'pytest',
+            'hypothesis',
+        ],
+    }
 )
