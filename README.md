@@ -1,6 +1,6 @@
-# torch-latent
+# TorchLatent
 
-[![Actions Status](https://github.com/speedcell4/torch-latent/workflows/unit-tests/badge.svg)](https://github.com/speedcell4/torch-latent/actions)
+[![Actions Status](https://github.com/speedcell4/torchlatent/workflows/unit-tests/badge.svg)](https://github.com/speedcell4/torchlatent/actions)
 
 ## requirements
 
