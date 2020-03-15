@@ -11,10 +11,11 @@
 
 `python3 -m pip install git+https://github.com/speedcell4/torchlatent.git`
 
-## Latent Structures
+## Latent Structures and Utilities
 
 - [ ] Conditional Random Fields
 - [ ] Non-Projective Dependency Tree
+- [ ] Reduce operation on PackedSequence
 
 ## Thanks
 
