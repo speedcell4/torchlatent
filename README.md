@@ -13,7 +13,7 @@
 
 ## Latent Structures and Utilities
 
-- [ ] Conditional Random Fields
+- [x] Conditional Random Fields
 - [ ] Non-Projective Dependency Tree
 - [ ] Reduce operation on PackedSequence
 
