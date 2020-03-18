@@ -149,13 +149,11 @@ class ConditionalRandomField(LatentDistribution):
 
     @lazy_property
     def marginals(self) -> Tensor:
-        mar, = autograd.grad(
+        ret, = autograd.grad(
             self.log_partitions, self.emission, torch.ones_like(self.log_partitions),
             create_graph=True, only_inputs=True, allow_unused=False,
         )
-        if self.batch_shape:
-            return mar.transpose(0, 1)
-        return mar
+        return ret
 
     @lazy_property
     def argmax(self) -> List[List[int]]:
@@ -242,3 +240,10 @@ class CRFDecoder(nn.Module):
     def decode(self, emission: Tensor, length: Tensor, padding_mask: Tensor) -> List[List[int]]:
         dist, _ = self(emission=emission, length=length, padding_mask=padding_mask, target=None)
         return dist.argmax
+
+    def marginals(self, emission: Tensor, length: Tensor, padding_mask: Tensor) -> Tensor:
+        dist, _ = self(emission=emission, length=length, padding_mask=padding_mask, target=None)
+        ret = dist.marginals
+        if not self.batch_first:
+            ret = ret.transpose(0, 1)
+        return ret
