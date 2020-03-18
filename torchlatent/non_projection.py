@@ -57,13 +57,13 @@ class NonProjectionDistribution(LatentDistribution):
 
 
 @torch.no_grad()
-def build_mask(length: Tensor, device, dim1: int = -2, dim2: int = -1) -> Tuple[Tensor, Tensor]:
+def build_mask(length: Tensor, device: torch.device, dim1: int = -2, dim2: int = -1) -> Tuple[Tensor, Tensor]:
     max_length = length.max().item()
 
     index = torch.arange(max_length, dtype=torch.long, device=length.device)
     ls = index[None, :] < length[:, None]  # [bsz, sln]
+    filling_edge = ls[..., None, :] & ls[..., :, None]  # [bsz, sln, sln]
     filling_diag = ls.diag_embed(dim1=dim1, dim2=dim2)  # [bsz, sln, sln]
-    filling_edge = ls[..., :, None] & ls[..., None, :]  # [bsz, sln, sln]
     padding_edge = ~filling_edge | filling_diag
     padding_diag = (~ls).diag_embed(dim1=dim1, dim2=dim2)
     return padding_edge.to(device), padding_diag.to(device)
