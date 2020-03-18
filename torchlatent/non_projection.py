@@ -12,6 +12,7 @@ class NonProjectionDistribution(LatentDistribution):
     def __init__(self, log_potential: Tensor, length: Tensor) -> None:
         super(NonProjectionDistribution, self).__init__()
         assert log_potential.dim() == 4
+        assert log_potential.size(-2) == log_potential.size(-1)
 
         self.log_potential = log_potential
         self.unlabeled = Log.sum(self.log_potential, dim=1)
