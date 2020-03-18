@@ -13,8 +13,10 @@
 
 ## Latent Structures and Utilities
 
-- [x] Conditional Random Fields
-- [ ] Non-Projective Dependency Tree
+- [x] Conditional Random Fields (CRF)
+- [ ] Non-Projective Dependency Tree (Matrix-tree Theorem)
+- [ ] Probabilistic Context-free Grammars (PCFG)
+- [ ] Dependency Model with Valence (DMV)
 - [ ] Reduce operation on PackedSequence
 
 ## Thanks
