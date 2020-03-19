@@ -18,10 +18,19 @@ def test_add(
     lhs = torch.randn(batch_sizes)
     rhs = torch.randn(batch_sizes)
 
-    std = Std.add(lhs.exp(), rhs.exp())
-    log = Log.add(lhs, rhs).exp()
+    lhs1 = lhs.clone().requires_grad_(True)
+    lhs2 = lhs.clone().requires_grad_(True)
+    rhs1 = rhs.clone().requires_grad_(True)
+    rhs2 = rhs.clone().requires_grad_(True)
+
+    std = Std.add(lhs1.exp(), rhs1.exp())
+    log = Log.add(lhs2, rhs2).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(lhs1.grad, lhs2.grad, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(rhs1.grad, rhs2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES)
@@ -31,10 +40,19 @@ def test_mul(
     lhs = torch.randn(batch_sizes)
     rhs = torch.randn(batch_sizes)
 
-    std = Std.mul(lhs.exp(), rhs.exp())
-    log = Log.mul(lhs, rhs).exp()
+    lhs1 = lhs.clone().requires_grad_(True)
+    lhs2 = lhs.clone().requires_grad_(True)
+    rhs1 = rhs.clone().requires_grad_(True)
+    rhs2 = rhs.clone().requires_grad_(True)
+
+    std = Std.mul(lhs1.exp(), rhs1.exp())
+    log = Log.mul(lhs2, rhs2).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(lhs1.grad, lhs2.grad, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(rhs1.grad, rhs2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES)
