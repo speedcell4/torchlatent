@@ -15,7 +15,7 @@ from torchlatent.utilities import reduce_tensor
 class ConditionalRandomField(LatentDistribution):
     def __init__(self, emission: Tensor, length: Tensor, padding_mask: Tensor,
                  transition: Tensor, start_transition: Tensor, end_transition: Tensor, unit: Tensor) -> None:
-        super(ConditionalRandomField, self).__init__()
+        super(ConditionalRandomField, self).__init__(log_potentials=emission)
 
         self.emission = emission
         self.length = length
@@ -50,14 +50,6 @@ class ConditionalRandomField(LatentDistribution):
             transition=self.transition, start_transition=self.start_transition,
             end_transition=self.end_transition, unit=self.unit,
         )
-
-    @lazy_property
-    def marginals(self) -> Tensor:
-        marginals, = autograd.grad(
-            self.log_partitions, self.emission, torch.ones_like(self.log_partitions),
-            create_graph=True, only_inputs=True, allow_unused=False,
-        )
-        return marginals
 
     @lazy_property
     def argmax(self) -> List[List[int]]:

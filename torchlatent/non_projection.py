@@ -9,17 +9,17 @@ from torchlatent.semiring import Log, Std
 
 
 class NonProjectionDistribution(LatentDistribution):
-    def __init__(self, log_potential: Tensor, length: Tensor) -> None:
-        super(NonProjectionDistribution, self).__init__()
-        assert log_potential.dim() == 4
-        assert log_potential.size(-2) == log_potential.size(-1)
+    def __init__(self, energy: Tensor, length: Tensor) -> None:
+        super(NonProjectionDistribution, self).__init__(log_potentials=energy)
+        assert energy.dim() == 4
+        assert energy.size(-2) == energy.size(-1)
 
-        self.log_potential = log_potential
-        self.unlabeled = Log.sum(self.log_potential, dim=1)
+        self.energy = energy
+        self.unlabeled = Log.sum(energy, dim=1)
 
         self.length = length
         self.padding_edge, self.padding_diag = build_mask(
-            length=length, device=log_potential.device,
+            length=length, device=energy.device,
         )
         self.laplacian = build_laplacian(
             potential=self.unlabeled.exp(),
@@ -29,9 +29,9 @@ class NonProjectionDistribution(LatentDistribution):
 
     def log_score(self, target: Tuple[Tensor, Tensor]) -> Tensor:
         head, drel = target
-        unlabeled = self.log_potential.gather(
+        unlabeled = self.energy.gather(
             dim=1, index=drel[:, None, :, None].expand(
-                (-1, -1, -1, self.log_potential.size(-1))
+                (-1, -1, -1, self.energy.size(-1))
             )
         )
         unlabeled = unlabeled[:, 0, :, :]
@@ -46,10 +46,6 @@ class NonProjectionDistribution(LatentDistribution):
     def log_partitions(self) -> Tensor:
         _, ret = self.laplacian.slogdet()
         return ret
-
-    @lazy_property
-    def marginals(self) -> Tensor:
-        raise NotImplementedError
 
     @lazy_property
     def argmax(self) -> Any:
