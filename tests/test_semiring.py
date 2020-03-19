@@ -61,11 +61,16 @@ def test_sum(
 ):
     x = torch.randn(batch_sizes)
     dim = torch.randint(0, x.dim(), ()).item()
+    x1 = x.clone().requires_grad_(True)
+    x2 = x.clone().requires_grad_(True)
 
-    std = Std.sum(x.exp(), dim=dim)
-    log = Log.sum(x, dim=dim).exp()
+    std = Std.sum(x1.exp(), dim=dim)
+    log = Log.sum(x2, dim=dim).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x1.grad, x2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES)
@@ -74,11 +79,16 @@ def test_prod(
 ):
     x = torch.randn(batch_sizes)
     dim = torch.randint(0, x.dim(), ()).item()
+    x1 = x.clone().requires_grad_(True)
+    x2 = x.clone().requires_grad_(True)
 
-    std = Std.prod(x.exp(), dim=dim)
-    log = Log.prod(x, dim=dim).exp()
+    std = Std.prod(x1.exp(), dim=dim)
+    log = Log.prod(x2, dim=dim).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x1.grad, x2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES, input_dim=DIM)
