@@ -5,9 +5,9 @@ from torchlatent.semiring import Std, Log
 
 RTOL = ATOL = 1e-5
 
-BATCH_SIZE = st.integers(1, 12)
+BATCH_SIZE = st.integers(1, 7)
 BATCH_SIZES = st.lists(BATCH_SIZE, min_size=1, max_size=4)
-SENTENCE_LENGTH = st.integers(1, 24)
+SENTENCE_LENGTH = st.integers(1, 12)
 DIM = st.integers(1, 12)
 
 
@@ -98,10 +98,19 @@ def test_vm(
     lhs = torch.randn((*batch_sizes, input_dim))
     rhs = torch.randn((*batch_sizes, input_dim, input_dim))
 
-    std = Std.vm(lhs.exp(), rhs.exp())
-    log = Log.vm(lhs, rhs).exp()
+    lhs1 = lhs.clone().requires_grad_(True)
+    lhs2 = lhs.clone().requires_grad_(True)
+    rhs1 = rhs.clone().requires_grad_(True)
+    rhs2 = rhs.clone().requires_grad_(True)
+
+    std = Std.vm(lhs1.exp(), rhs1.exp())
+    log = Log.vm(lhs2, rhs2).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(lhs1.grad, lhs2.grad, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(rhs1.grad, rhs2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES, input_dim=DIM)
@@ -111,10 +120,19 @@ def test_mv(
     lhs = torch.randn((*batch_sizes, input_dim, input_dim))
     rhs = torch.randn((*batch_sizes, input_dim))
 
-    std = Std.mv(lhs.exp(), rhs.exp())
-    log = Log.mv(lhs, rhs).exp()
+    lhs1 = lhs.clone().requires_grad_(True)
+    lhs2 = lhs.clone().requires_grad_(True)
+    rhs1 = rhs.clone().requires_grad_(True)
+    rhs2 = rhs.clone().requires_grad_(True)
+
+    std = Std.mv(lhs1.exp(), rhs1.exp())
+    log = Log.mv(lhs2, rhs2).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(lhs1.grad, lhs2.grad, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(rhs1.grad, rhs2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES, input_dim=DIM)
@@ -124,10 +142,19 @@ def test_mm(
     lhs = torch.randn((*batch_sizes, input_dim, input_dim))
     rhs = torch.randn((*batch_sizes, input_dim, input_dim))
 
-    std = Std.mm(lhs.exp(), rhs.exp())
-    log = Log.mm(lhs, rhs).exp()
+    lhs1 = lhs.clone().requires_grad_(True)
+    lhs2 = lhs.clone().requires_grad_(True)
+    rhs1 = rhs.clone().requires_grad_(True)
+    rhs2 = rhs.clone().requires_grad_(True)
+
+    std = Std.mm(lhs1.exp(), rhs1.exp())
+    log = Log.mm(lhs2, rhs2).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(lhs1.grad, lhs2.grad, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(rhs1.grad, rhs2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
