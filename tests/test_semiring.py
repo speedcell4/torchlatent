@@ -5,10 +5,10 @@ from torchlatent.semiring import Std, Log
 
 RTOL = ATOL = 1e-5
 
-BATCH_SIZE = st.integers(1, 7)
+BATCH_SIZE = st.integers(1, 8)
 BATCH_SIZES = st.lists(BATCH_SIZE, min_size=1, max_size=4)
-SENTENCE_LENGTH = st.integers(1, 12)
-DIM = st.integers(1, 12)
+SENTENCE_LENGTH = st.integers(1, 10)
+DIM = st.integers(1, 7)
 
 
 @given(batch_sizes=BATCH_SIZES)
@@ -162,11 +162,16 @@ def test_batch_reduce(
         batch_sizes, sentence_length, input_dim
 ):
     x = torch.randn((sentence_length, *batch_sizes, input_dim, input_dim))
+    x1 = x.clone().requires_grad_(True)
+    x2 = x.clone().requires_grad_(True)
 
-    std = Std.batch_reduce(x.exp())
-    log = Log.batch_reduce(x).exp()
+    std = Std.batch_reduce(x1.exp())
+    log = Log.batch_reduce(x2).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x1.grad, x2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_size=BATCH_SIZE, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
@@ -175,11 +180,16 @@ def test_single_reduce(
 ):
     x = torch.randn((sentence_length, batch_size, input_dim, input_dim))
     l = torch.randint(1, 1 + sentence_length, (batch_size,))
+    x1 = x.clone().requires_grad_(True)
+    x2 = x.clone().requires_grad_(True)
 
-    std = Std.single_reduce(x.exp(), l)
-    log = Log.single_reduce(x, l).exp()
+    std = Std.single_reduce(x1.exp(), l)
+    log = Log.single_reduce(x2, l).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x1.grad, x2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
@@ -187,11 +197,16 @@ def test_fold(
         batch_sizes, sentence_length, input_dim
 ):
     x = torch.randn((sentence_length, *batch_sizes, input_dim, input_dim))
+    x1 = x.clone().requires_grad_(True)
+    x2 = x.clone().requires_grad_(True)
 
-    std = Std.fold(x.exp())
-    log = Log.fold(x).exp()
+    std = Std.fold(x1.exp())
+    log = Log.fold(x2).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x1.grad, x2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
@@ -199,11 +214,16 @@ def test_scan(
         batch_sizes, sentence_length, input_dim
 ):
     x = torch.randn((sentence_length, *batch_sizes, input_dim, input_dim))
+    x1 = x.clone().requires_grad_(True)
+    x2 = x.clone().requires_grad_(True)
 
-    std = Std.scan(x.exp())
-    log = Log.scan(x).exp()
+    std = Std.scan(x1.exp())
+    log = Log.scan(x2).exp()
+    std.backward(torch.ones_like(std))
+    log.backward(torch.ones_like(log))
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x1.grad, x2.grad, rtol=RTOL, atol=ATOL)
 
 
 @given(batch_size=BATCH_SIZE, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
