@@ -4,7 +4,9 @@ from hypothesis import given, strategies as st
 from torchlatent.semiring import Std, Log
 
 RTOL = ATOL = 1e-5
-BATCH_SIZES = st.lists(st.integers(1, 10), min_size=1, max_size=4)
+
+BATCH_SIZE = SENTENCE_LENGTH = st.integers(1, 10)
+BATCH_SIZES = st.lists(BATCH_SIZE, min_size=1, max_size=4)
 DIM = st.integers(1, 12)
 
 
@@ -95,5 +97,30 @@ def test_mm(
 
     std = Std.mm(lhs.exp(), rhs.exp())
     log = Log.mm(lhs, rhs).exp()
+
+    assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+
+
+@given(batch_sizes=BATCH_SIZES, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
+def test_batch_reduce(
+        batch_sizes, sentence_length, input_dim
+):
+    x = torch.randn((sentence_length, *batch_sizes, input_dim, input_dim))
+
+    std = Std.batch_reduce(x.exp())
+    log = Log.batch_reduce(x).exp()
+
+    assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+
+
+@given(batch_size=BATCH_SIZE, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
+def test_single_reduce(
+        batch_size, sentence_length, input_dim
+):
+    x = torch.randn((sentence_length, batch_size, input_dim, input_dim))
+    l = torch.randint(1, 1 + sentence_length, (batch_size,))
+
+    std = Std.single_reduce(x.exp(), l)
+    log = Log.single_reduce(x, l).exp()
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
