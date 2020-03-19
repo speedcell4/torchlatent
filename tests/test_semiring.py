@@ -32,3 +32,33 @@ def test_mul(
     log = Log.mul(lhs, rhs).exp()
 
     assert torch.allclose(std, log, rtol=1e-5, atol=1e-5)
+
+
+@given(
+    batch_sizes=st.lists(st.integers(1, 10), min_size=1, max_size=4),
+)
+def test_sum(
+        batch_sizes
+):
+    x = torch.randn(batch_sizes)
+    dim = torch.randint(0, x.dim(), ()).item()
+
+    std = Std.sum(x.exp(), dim=dim)
+    log = Log.sum(x, dim=dim).exp()
+
+    assert torch.allclose(std, log, rtol=1e-5, atol=1e-5)
+
+
+@given(
+    batch_sizes=st.lists(st.integers(1, 10), min_size=1, max_size=4),
+)
+def test_prod(
+        batch_sizes
+):
+    x = torch.randn(batch_sizes)
+    dim = torch.randint(0, x.dim(), ()).item()
+
+    std = Std.prod(x.exp(), dim=dim)
+    log = Log.prod(x, dim=dim).exp()
+
+    assert torch.allclose(std, log, rtol=1e-5, atol=1e-5)
