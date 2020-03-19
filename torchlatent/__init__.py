@@ -1,1 +1,1 @@
-from torchlatent.crf import ConditionalRandomField, CRFDecoder
+from torchlatent.crf import ConditionalRandomField, CRFDecoderABC
