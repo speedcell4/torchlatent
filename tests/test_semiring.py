@@ -124,3 +124,27 @@ def test_single_reduce(
     log = Log.single_reduce(x, l).exp()
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+
+
+@given(batch_sizes=BATCH_SIZES, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
+def test_fold(
+        batch_sizes, sentence_length, input_dim
+):
+    x = torch.randn((sentence_length, *batch_sizes, input_dim, input_dim))
+
+    std = Std.fold(x.exp())
+    log = Log.fold(x).exp()
+
+    assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+
+
+@given(batch_sizes=BATCH_SIZES, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
+def test_scan(
+        batch_sizes, sentence_length, input_dim
+):
+    x = torch.randn((sentence_length, *batch_sizes, input_dim, input_dim))
+
+    std = Std.scan(x.exp())
+    log = Log.scan(x).exp()
+
+    assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
