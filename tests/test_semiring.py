@@ -148,3 +148,21 @@ def test_scan(
     log = Log.scan(x).exp()
 
     assert torch.allclose(std, log, rtol=RTOL, atol=ATOL)
+
+
+@given(batch_size=BATCH_SIZE, sentence_length=SENTENCE_LENGTH, input_dim=DIM)
+def test_single_reduce_scan_equivalence(
+        batch_size, sentence_length, input_dim
+):
+    x = torch.randn((sentence_length, batch_size, input_dim, input_dim))
+    l = torch.randint(1, 1 + sentence_length, (batch_size,))
+    b = torch.arange(batch_size)
+
+    std_reduce = Std.single_reduce(x.exp(), l)
+    log_reduce = Log.single_reduce(x, l).exp()
+    std_scan = Std.scan(x.exp())[l - 1, b]
+    log_scan = Log.scan(x).exp()[l - 1, b]
+
+    assert torch.allclose(std_reduce, log_reduce, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(std_scan, log_scan, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(std_reduce, std_scan, rtol=RTOL, atol=ATOL)
