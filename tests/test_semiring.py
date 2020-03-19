@@ -5,8 +5,9 @@ from torchlatent.semiring import Std, Log
 
 RTOL = ATOL = 1e-5
 
-BATCH_SIZE = SENTENCE_LENGTH = st.integers(1, 10)
+BATCH_SIZE = st.integers(1, 12)
 BATCH_SIZES = st.lists(BATCH_SIZE, min_size=1, max_size=4)
+SENTENCE_LENGTH = st.integers(1, 24)
 DIM = st.integers(1, 12)
 
 
