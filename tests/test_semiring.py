@@ -1,14 +1,86 @@
 import torch
 from hypothesis import given, strategies as st
 
-from torchlatent.semiring import Std, Log
+from torchlatent.semiring import Std, Log, logsumexp, log_softmax, softmax
 
 RTOL = ATOL = 1e-5
 
 BATCH_SIZE = st.integers(1, 8)
-BATCH_SIZES = st.lists(BATCH_SIZE, min_size=1, max_size=4)
-SENTENCE_LENGTH = st.integers(1, 10)
+BATCH_SIZES = st.lists(BATCH_SIZE, min_size=1, max_size=3)
+SENTENCE_LENGTH = st.integers(1, 8)
 DIM = st.integers(1, 7)
+
+
+@given(batch_sizes=BATCH_SIZES)
+def test_logsumexp(batch_sizes):
+    dim = torch.randint(0, len(batch_sizes), (), dtype=torch.long).item()
+
+    x = torch.rand(batch_sizes)
+    x1 = x.clone().requires_grad_(True)
+    x2 = x.clone().requires_grad_(True)
+
+    y1 = logsumexp(x1, dim=dim)
+    y2 = torch.logsumexp(x2, dim=dim)
+    y1.backward(torch.ones_like(y1))
+    y2.backward(torch.ones_like(y2))
+
+    assert torch.allclose(y1, y2, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x1.grad, x2.grad, rtol=RTOL, atol=ATOL)
+
+    x = torch.full(batch_sizes, fill_value=-float('inf'), requires_grad=True)
+    y = logsumexp(x, dim=dim)
+    y.backward(torch.ones_like(y))
+
+    assert torch.allclose(y, torch.full_like(y, -float('inf')), rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x.grad, torch.full_like(x.grad, 0), rtol=RTOL, atol=ATOL)
+
+
+@given(batch_sizes=BATCH_SIZES)
+def test_log_softmax(batch_sizes):
+    dim = torch.randint(0, len(batch_sizes), (), dtype=torch.long).item()
+
+    x = torch.rand(batch_sizes)
+    x1 = x.clone().requires_grad_(True)
+    x2 = x.clone().requires_grad_(True)
+
+    y1 = log_softmax(x1, dim=dim)
+    y2 = torch.log_softmax(x2, dim=dim)
+    y1.backward(torch.ones_like(y1))
+    y2.backward(torch.ones_like(y2))
+
+    assert torch.allclose(y1, y2, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x1.grad, x2.grad, rtol=RTOL, atol=ATOL)
+
+    x = torch.full(batch_sizes, fill_value=-float('inf'), requires_grad=True)
+    y = log_softmax(x, dim=dim)
+    y.backward(torch.ones_like(y))
+
+    assert torch.allclose(y, torch.full_like(y, -float('inf')), rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x.grad, torch.full_like(x.grad, 0), rtol=RTOL, atol=ATOL)
+
+
+@given(batch_sizes=BATCH_SIZES)
+def test_softmax(batch_sizes):
+    dim = torch.randint(0, len(batch_sizes), (), dtype=torch.long).item()
+
+    x = torch.rand(batch_sizes)
+    x1 = x.clone().requires_grad_(True)
+    x2 = x.clone().requires_grad_(True)
+
+    y1 = softmax(x1, dim=dim)
+    y2 = torch.softmax(x2, dim=dim)
+    y1.backward(torch.ones_like(y1))
+    y2.backward(torch.ones_like(y2))
+
+    assert torch.allclose(y1, y2, rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x1.grad, x2.grad, rtol=RTOL, atol=ATOL)
+
+    x = torch.full(batch_sizes, fill_value=-float('inf'), requires_grad=True)
+    y = softmax(x, dim=dim)
+    y.backward(torch.ones_like(y))
+
+    assert torch.allclose(y, torch.full_like(y, 0), rtol=RTOL, atol=ATOL)
+    assert torch.allclose(x.grad, torch.full_like(x.grad, 0), rtol=RTOL, atol=ATOL)
 
 
 @given(batch_sizes=BATCH_SIZES)
