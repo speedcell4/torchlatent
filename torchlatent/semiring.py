@@ -157,8 +157,23 @@ def logsumexp(x: Tensor, dim: int) -> Tensor:
     m, _ = x.max(dim=dim)
     mask = m == -float('inf')
 
-    s = (x - m.masked_fill_(mask, 0).unsqueeze(dim=dim)).exp().sum(dim=dim)
-    return s.masked_fill_(mask, 1).log() + m.masked_fill_(mask, -float('inf'))
+    s = (x - m.masked_fill(mask, 0).unsqueeze(dim=dim)).exp().sum(dim=dim)
+    return s.masked_fill(mask, 1).log() + m.masked_fill(mask, -float('inf'))
+
+
+@jit.script
+def log_softmax(x: Tensor, dim: int) -> Tensor:
+    m, _ = x.max(dim=dim)
+    mask = m == -float('inf')
+
+    s = (x - m.masked_fill(mask, 0).unsqueeze(dim=dim)).exp().sum(dim=dim)
+    z = s.masked_fill(mask, 1).log() + m.masked_fill(mask, 0)
+    return x.masked_fill(mask.unsqueeze(dim=dim), -float('inf')) - z.unsqueeze(dim=dim)
+
+
+@jit.script
+def softmax(x: Tensor, dim: int) -> Tensor:
+    return log_softmax(x=x, dim=dim).exp()
 
 
 @jit.script
