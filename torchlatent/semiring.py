@@ -1,10 +1,11 @@
-from typing import Callable
+from typing import Callable, List
 
 import torch
 from torch import Tensor
 from torch import jit
 
 # Semiring
+from torch.nn.utils.rnn import PackedSequence
 
 BIN_FN = Callable[[Tensor, Tensor], Tensor]
 SUM_FN = Callable[[Tensor, int], Tensor]
@@ -93,6 +94,28 @@ def build_semiring_scan(bin_fn: BIN_FN):
     return semiring_scan
 
 
+def build_semiring_pack_reduce(bin_fn: BIN_FN):
+    @jit.script
+    def semiring_pack_reduce(pack: PackedSequence, ins: Tensor, res: Tensor, batch_sizes: List[int], cnt: int):
+        zero = torch.zeros(
+            (cnt, pack.data.size(-2), pack.data.size(-1)),
+            dtype=pack.data.dtype, device=pack.data.device,
+        ).requires_grad_(False)
+        data = torch.cat([pack.data, zero], dim=0)
+
+        start, end = 0, 0
+        for batch_size in batch_sizes:
+            start, end = end, end + batch_size
+            lhs = ins[start:end, 0]
+            rhs = ins[start:end, 1]
+            tgt = ins[start:end, 2]
+            data[tgt] = bin_fn(data[lhs], data[rhs])
+
+        return data[res]
+
+    return semiring_pack_reduce
+
+
 class Semiring(object):
     def __init__(self, zero: float, unit: float,
                  add_fn: BIN_FN, mul_fn: BIN_FN,
@@ -117,6 +140,7 @@ class Semiring(object):
         self.single_reduce = build_semiring_single_reduce(self.batch_reduce)
         self.fold = build_semiring_fold(self.mm)
         self.scan = build_semiring_scan(self.mm)
+        self.pack_reduce = build_semiring_pack_reduce(self.mm)
 
 
 # Standard Semiring
