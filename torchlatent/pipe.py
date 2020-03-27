@@ -15,9 +15,9 @@ try:
             return build_ins(pack=indices)
 
 
-    class PackedReduceInsPipe(Pipe):
+    class PackedCrfPtrPipe(Pipe):
         def __init__(self, device: Union[int, torch.device], dtype: torch.dtype = torch.long) -> None:
-            super(PackedReduceInsPipe, self).__init__()
+            super(PackedCrfPtrPipe, self).__init__()
             self.with_(
                 pre=GetRange(reverse=False),
                 post=ToTensor(dtype=dtype),
