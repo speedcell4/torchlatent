@@ -111,6 +111,8 @@ def build_semiring_pack_reduce(bin_fn: BIN_FN):
             tgt = ins[start:end, 2]
             data[tgt] = bin_fn(data[lhs], data[rhs])
 
+        if pack.unsorted_indices is not None:
+            res = res[pack.unsorted_indices]
         return data[res]
 
     return semiring_pack_reduce
