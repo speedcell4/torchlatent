@@ -5,7 +5,7 @@ from torch import Tensor
 from torch.distributions.utils import lazy_property
 
 from torchlatent.abc import LatentDistribution
-from torchlatent.semiring import Log, Std
+from torchlatent.semiring import log, std
 
 
 class NonProjectionDistribution(LatentDistribution):
@@ -15,7 +15,7 @@ class NonProjectionDistribution(LatentDistribution):
         assert energy.size(-2) == energy.size(-1)
 
         self.energy = energy
-        self.unlabeled = Log.sum(energy, dim=1)
+        self.unlabeled = log.sum(energy, dim=1)
 
         self.length = length
         self.padding_edge, self.padding_diag = build_mask(
@@ -36,11 +36,11 @@ class NonProjectionDistribution(LatentDistribution):
         )
         unlabeled = unlabeled[:, 0, :, :]
 
-        unlabeled = unlabeled.masked_fill(self.padding_edge, Std.zero)
-        unlabeled[:, 0, :] = Std.zero
+        unlabeled = unlabeled.masked_fill(self.padding_edge, std.zero)
+        unlabeled[:, 0, :] = std.zero
 
         scores = unlabeled.gather(dim=-1, index=head[:, :, None])
-        return Std.sum(Std.sum(scores, dim=-1), dim=-1)
+        return std.sum(std.sum(scores, dim=-1), dim=-1)
 
     @lazy_property
     def log_partitions(self) -> Tensor:
