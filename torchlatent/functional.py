@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor
 from torch import jit
+from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 
 
 @jit.script
@@ -25,3 +26,8 @@ def build_mask(length: Tensor, padding_mask: bool = True, batch_first: bool = Tr
     if not batch_first:
         mask = mask.transpose(0, 1)
     return mask.type(dtype).to(device or length.device).contiguous()
+
+
+def build_seq_ptr(lengths: Tensor, device: torch.device) -> PackedSequence:
+    seq_ptr = torch.arange(lengths.size(0), device=device)[:, None]
+    return pack_padded_sequence(seq_ptr, lengths=lengths, batch_first=True, enforce_sorted=False)

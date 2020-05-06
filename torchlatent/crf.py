@@ -9,7 +9,7 @@ from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
-from torchlatent.functional import build_mask
+from torchlatent.functional import build_mask, build_seq_ptr
 from torchlatent.instr import BatchInstr, build_crf_batch_instr
 from torchlatent.semiring import log
 
@@ -179,16 +179,12 @@ class CrfDecoderABC(nn.Module):
         if seq_ptr is None:
             assert lengths is not None
 
-            seq_ptr = torch.stack([
-                torch.full((log_potentials.size(1),), fill_value=index,
-                           dtype=torch.long, device=log_potentials.device)
-                for index in range(lengths.size(0))], dim=0 if self.batch_first else 1)
-            seq_ptr = pack_padded_sequence(seq_ptr, lengths=lengths, batch_first=self.batch_first, enforce_sorted=False)
+            seq_ptr = build_seq_ptr(lengths=lengths, device=log_potentials.data.device)
 
         if instr is None:
             assert lengths is not None
 
-            instr = build_crf_batch_instr(lengths=lengths, device=log_potentials.device)
+            instr = build_crf_batch_instr(lengths=lengths, device=log_potentials.data.device)
 
         if torch.is_tensor(target):
             assert lengths is not None
