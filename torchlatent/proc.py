@@ -1,6 +1,6 @@
+import warnings
 from typing import Any
 from typing import List
-import warnings
 
 from torchlatent.instr import build_crf_instr, collate_crf_instr, BatchInstr, Instr
 
@@ -16,5 +16,6 @@ try:
     class CollateCrfInstr(Proc):
         def __call__(self, collected_instr: List[Instr], *args, **kwargs) -> BatchInstr:
             return collate_crf_instr(collected_instr=collected_instr)
+
 except ImportError:
     warnings.warn(f'torchglyph is required')
