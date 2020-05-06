@@ -1,18 +1,16 @@
 from setuptools import setup, find_packages
 
-with open('README.md', 'r', encoding='utf-8') as fp:
-    long_description = fp.read()
+name = 'torchlatent'
 
 setup(
-    name='torchlatent',
+    name=name,
     version='0.1.0',
-    packages=find_packages(),
+    packages=[package for package in find_packages() if package.startswith(name)],
     url='https://github.com/speedcell4/torchlatent',
     license='MIT',
     author='speedcell4',
     author_email='speedcell4@gmail.com',
-    description='A latent structure inference library',
-    long_description=long_description,
+    description='High Performance Structured Prediction in PyTorch',
     python_requires='>=3.7',
     install_requires=[
         'numpy',
