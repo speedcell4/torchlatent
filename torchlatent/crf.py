@@ -1,7 +1,7 @@
 from typing import Optional, List, Tuple, Union
 
 import torch
-from torch import Tensor
+from torch import Tensor, jit
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
 from torch.nn import functional as F
@@ -32,15 +32,36 @@ def obtain_indices(pack: PackedSequence) -> Tuple[Tensor, Tensor, Tensor, Tensor
     return src, dst, lhs.clamp_min(0), rhs, lhs == -1
 
 
+@jit.script
+def _compute_log_scores(
+        log_potentials: Tensor, src: Tensor, dst: Tensor,
+        padding_mask: Tensor, lhs: Tensor, rhs: Tensor, target: Tensor, seq_ptr: Tensor,
+        transition: Tensor, start_transition: Tensor, end_transition: Tensor) -> Tensor:
+    e = log_potentials.gather(dim=-1, index=target.unsqueeze(-1)).squeeze(-1)
+    t = transition[lhs, rhs].masked_fill(padding_mask, log.one)
+
+    return (start_transition[src] + end_transition[dst]).scatter_add(dim=0, index=seq_ptr, src=log.mul(e, t))
+
+
 def compute_log_scores(
         log_potentials: PackedSequence, target: PackedSequence, seq_ptr: PackedSequence,
         transition: Tensor, start_transition: Tensor, end_transition: Tensor) -> Tensor:
     src, dst, lhs, rhs, padding_mask = obtain_indices(target)
 
-    e = log_potentials.data.gather(dim=-1, index=target.data[:, None])[:, 0]
-    t = transition[lhs, rhs].masked_fill(padding_mask, log.one)
+    return _compute_log_scores(
+        log_potentials=log_potentials.data, src=src, dst=dst, padding_mask=padding_mask,
+        lhs=lhs, rhs=rhs, target=target.data, seq_ptr=seq_ptr.data,
+        transition=transition, start_transition=start_transition, end_transition=end_transition)
 
-    return (start_transition[src] + end_transition[dst]).scatter_add(dim=0, index=seq_ptr.data, src=log.mul(e, t))
+
+@jit.script
+def _compute_log_partitions(
+        log_potentials: Tensor, src: Tensor, padding_mask: Tensor,
+        transition: Tensor, start_transition: Tensor, unit: Tensor) -> Tuple[Tensor, Tensor]:
+    log_partitions = log.mul(transition.unsqueeze(-3), log_potentials.unsqueeze(-2))  # [pln,  tag, tag]
+    log_partitions = torch.where(padding_mask.unsqueeze(-1).unsqueeze(-2), unit.unsqueeze(-3), log_partitions)
+
+    return log_partitions, log.mul(start_transition.unsqueeze(-2), log_potentials[src])
 
 
 def compute_log_partitions(
@@ -50,16 +71,14 @@ def compute_log_partitions(
         data=torch.arange(log_potentials.data.size(0), dtype=torch.long, device=log_potentials.data.device),
     ))
 
-    start = log.mul(start_transition[None, :], log_potentials.data[src, :])  # [bsz, tag]
-    end = end_transition  # [tag]
-
-    log_partitions = log.mul(transition[None, :, :], log_potentials.data[:, None, :])  # [pln,  tag, tag]
-    log_partitions = torch.where(padding_mask[:, None, None], unit[None, :, :], log_partitions)
+    log_partitions, start = _compute_log_partitions(
+        log_potentials=log_potentials.data, src=src, padding_mask=padding_mask,
+        transition=transition, start_transition=start_transition, unit=unit)
 
     log_partitions = log.reduce(
         pack=log_potentials._replace(data=log_partitions), instr=instr,
     )
-    return log.mv(log.vm(start, log_partitions), end)
+    return log.mv(log.vm(start, log_partitions), end_transition)
 
 
 def viterbi(log_potentials: Tensor, padding_mask: Tensor, length: Tensor,

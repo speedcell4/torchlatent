@@ -19,7 +19,7 @@ def build_build_unit(zero: float, one: float):
 def build_vm_fn(mul_fn, sum_fn):
     @jit.script
     def vm_fn(x: Tensor, y: Tensor) -> Tensor:
-        return sum_fn(mul_fn(x[..., :, None], y), -2)
+        return sum_fn(mul_fn(x.unsqueeze(-1), y), -2)
 
     return vm_fn
 
@@ -27,7 +27,7 @@ def build_vm_fn(mul_fn, sum_fn):
 def build_mv_fn(mul_fn, sum_fn):
     @jit.script
     def mv_fn(x: Tensor, y: Tensor) -> Tensor:
-        return sum_fn(mul_fn(x, y[..., None, :]), -1)
+        return sum_fn(mul_fn(x, y.unsqueeze(-2)), -1)
 
     return mv_fn
 
@@ -35,7 +35,7 @@ def build_mv_fn(mul_fn, sum_fn):
 def build_mm_fn(mul_fn, sum_fn):
     @jit.script
     def mm_fn(x: Tensor, y: Tensor) -> Tensor:
-        return sum_fn(mul_fn(x[..., :, :, None], y[..., None, :, :]), -2)
+        return sum_fn(mul_fn(x.unsqueeze(-1), y.unsqueeze(-3)), -2)
 
     return mm_fn
 
