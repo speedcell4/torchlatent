@@ -8,7 +8,7 @@ from torchlatent.functional import build_mask
 
 @given(
     batch_size=st.integers(1, 12),
-    sentence_length=st.integers(2, 12),  # check sentence_length = 1 case
+    sentence_length=st.integers(2, 12),  # TODO: check sentence_length = 1 case
     num_tags=st.integers(1, 12),
 )
 def test_crf_decoder_correctness(batch_size, sentence_length, num_tags):
