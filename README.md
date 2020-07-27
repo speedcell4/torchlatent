@@ -1,6 +1,7 @@
 # TorchLatent
 
-[![Actions Status](https://github.com/speedcell4/torchlatent/workflows/unit-tests/badge.svg)](https://github.com/speedcell4/torchlatent/actions)
+![Unit Tests](https://github.com/speedcell4/torchlatent/workflows/Unit%20Tests/badge.svg)
+![Upload Python Package](https://github.com/speedcell4/torchlatent/workflows/Upload%20Python%20Package/badge.svg)
 
 ## Requirements
 
