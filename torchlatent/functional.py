@@ -28,6 +28,7 @@ def build_mask(length: Tensor, padding_mask: bool = True, batch_first: bool = Tr
     return mask.type(dtype).to(device or length.device).contiguous()
 
 
+@torch.no_grad()
 def build_seq_ptr(lengths: Tensor, device: torch.device) -> PackedSequence:
-    seq_ptr = torch.arange(lengths.size(0), device=device)[:, None]
+    seq_ptr = torch.arange(lengths.size(0), device=device)[:, None].expand((-1, lengths.max().item()))
     return pack_padded_sequence(seq_ptr, lengths=lengths, batch_first=True, enforce_sorted=False)

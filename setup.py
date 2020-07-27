@@ -19,6 +19,7 @@ setup(
         'dev': [
             'pytest',
             'hypothesis',
+            'pytorch-crf',
         ],
         'benchmark': [
             'aku',

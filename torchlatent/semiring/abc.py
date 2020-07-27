@@ -43,10 +43,10 @@ def build_mm_fn(mul_fn, sum_fn):
 def build_reduce_fn(mm_fn):
     @jit.script
     def reduce_fn(pack: PackedSequence, instr: Tuple[Tensor, Optional[Tensor], Tensor, List[int], int]) -> Tensor:
-        src, instr, dst, batch_sizes, cnt = instr
+        src, instr, dst, batch_sizes, num_steps = instr
 
         data = torch.empty(
-            (cnt, pack.data.size(-2), pack.data.size(-1)),
+            (num_steps,) + pack.data.size()[1:],
             dtype=pack.data.dtype, device=pack.data.device,
         ).requires_grad_(False)
         data[src] = pack.data

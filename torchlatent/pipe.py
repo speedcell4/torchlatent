@@ -5,7 +5,7 @@ import torch
 
 try:
     from torchglyph.pipe import Pipe
-    from torchglyph.proc import GetRange, ToTensor, PackPtrSeq, ToDevice, Proc
+    from torchglyph.proc import GetLength, ToTensor, PackPtrSeq, ToDevice, Proc
     from torchlatent.proc import BuildCrfInstr, CollateCrfInstr
 
 
@@ -13,9 +13,9 @@ try:
         def __init__(self, device: Union[int, torch.device]) -> None:
             super(CrfInstrPipe, self).__init__()
             self.with_(
-                pre=GetRange(reverse=False) + BuildCrfInstr(),
+                pre=GetLength() + BuildCrfInstr(),
                 post=None,
-                batch=CollateCrfInstr() + ToDevice(device=device),
+                batch=CollateCrfInstr(device=device),
             )
 
 except ImportError:
