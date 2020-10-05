@@ -7,6 +7,7 @@ from torch.distributions.utils import lazy_property
 from torch.nn import functional as F
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
+from torch.nn.utils.rnn import pack_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 from torchlatent.functional import build_seq_ptr
@@ -46,15 +47,11 @@ def compute_log_scores(
 def compute_log_partitions(
         log_potentials: PackedSequence, instr: BatchInstr,
         transition: Tensor, start_transition: Tensor, end_transition: Tensor, unit: Tensor) -> Tensor:
-    src, dst, lhs, rhs, padding_mask = obtain_indices(log_potentials._replace(
-        data=torch.arange(log_potentials.data.size(0), dtype=torch.long, device=log_potentials.data.device),
-    ))
-
-    start = log.mul(start_transition[None, :], log_potentials.data[src, :])  # [bsz, tag]
+    start = log.mul(start_transition[None, :], log_potentials.data[log_potentials.unsorted_indices, :])  # [bsz, tag]
     end = end_transition  # [tag]
 
     log_partitions = log.mul(transition[None, :, :], log_potentials.data[:, None, :])  # [pln,  tag, tag]
-    log_partitions = torch.where(padding_mask[:, None, None], unit[None, :, :], log_partitions)
+    log_partitions[:log_potentials.batch_sizes[0]] = unit[None, :, :]
 
     log_partitions = log.reduce(
         pack=log_potentials._replace(data=log_partitions), instr=instr,
@@ -85,26 +82,22 @@ def compute_log_partitions(
 def viterbi(
         log_potentials: PackedSequence, instr: BatchInstr,
         transition: Tensor, start_transition: Tensor, end_transition: Tensor, unit: Tensor):
-    src, dst, lhs, rhs, padding_mask = obtain_indices(log_potentials._replace(
-        data=torch.arange(log_potentials.data.size(0), dtype=torch.long, device=log_potentials.data.device),
-    ))
-
-    start = max.mul(start_transition[None, :], log_potentials.data[src, :])  # [bsz, tag]
+    start = max.mul(start_transition[None, :], log_potentials.data[log_potentials.unsorted_indices, :])  # [bsz, tag]
     end = end_transition  # [tag]
 
     max_partitions = max.mul(transition[None, :, :], log_potentials.data[:, None, :])  # [pln,  tag, tag]
-    max_partitions = torch.where(padding_mask[:, None, None], unit[None, :, :], max_partitions)
+    max_partitions[:log_potentials.batch_sizes[0]] = unit[None, :, :]
 
     max_partitions = max.reduce(
         pack=log_potentials._replace(data=max_partitions), instr=instr,
     )
     max_partitions = max.mv(max.vm(start, max_partitions), end)
 
-    ans, = torch.autograd.grad(
+    grad, = torch.autograd.grad(
         max_partitions, log_potentials.data, torch.ones_like(max_partitions),
         retain_graph=False, create_graph=False, allow_unused=False,
     )
-    return log_potentials._replace(data=ans.argmax(dim=-1))
+    return log_potentials._replace(data=grad.argmax(dim=-1))
 
 
 class CrfDistribution(distributions.Distribution):
@@ -271,3 +264,15 @@ class CrfDecoder(CrfDecoderABC):
             f'num_ner={self.num_tags}',
             f'batch_first={self.batch_first}',
         ])
+
+
+if __name__ == '__main__':
+    x = pack_sequence([
+        torch.randn((2, 5)),
+        torch.randn((5, 5)),
+        torch.randn((3, 5)),
+    ], enforce_sorted=False)
+
+    print(x.unsorted_indices)
+
+    print(obtain_indices(x._replace(data=torch.arange(10))))
