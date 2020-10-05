@@ -1,4 +1,4 @@
-from typing import Optional, List, Tuple, Union
+from typing import Union, Optional, List, Tuple
 
 import torch
 from torch import Tensor
@@ -9,9 +9,9 @@ from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
-from torchlatent.functional import build_mask, build_seq_ptr
+from torchlatent.functional import build_seq_ptr
 from torchlatent.instr import BatchInstr, build_crf_batch_instr
-from torchlatent.semiring import log
+from torchlatent.semiring import log, max
 
 
 def obtain_indices(pack: PackedSequence) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
@@ -62,24 +62,49 @@ def compute_log_partitions(
     return log.mv(log.vm(start, log_partitions), end)
 
 
-def viterbi(log_potentials: Tensor, padding_mask: Tensor, length: Tensor,
-            transition: Tensor, start_transition: Tensor, end_transition: Tensor) -> List[List[int]]:
-    transition = log.mul(transition[None, None, :, :], log_potentials[:, :, None, :])
-    scores = log.mul(start_transition[None, :], log_potentials[0])
+# def viterbi(log_potentials: Tensor, padding_mask: Tensor, length: Tensor,
+#             transition: Tensor, start_transition: Tensor, end_transition: Tensor) -> List[List[int]]:
+#     transition = log.mul(transition[None, None, :, :], log_potentials[:, :, None, :])
+#     scores = log.mul(start_transition[None, :], log_potentials[0])
+#
+#     back_pointers = []
+#     for i in range(1, length.max().item()):
+#         new_scores, back_pointer = torch.max(log.mul(scores[..., None], transition[i]), dim=-2)
+#         scores = torch.where(padding_mask[i, ..., None], scores, new_scores)
+#         back_pointers.append(back_pointer)
+#
+#     ret = [torch.argmax(log.mul(scores, end_transition[None, :]), dim=-1, keepdim=True)]
+#     for i, back_pointer in reversed(list(enumerate(back_pointers, start=1))):
+#         new_cur = back_pointer.gather(dim=-1, index=ret[-1])
+#         ret.append(torch.where(padding_mask[i, ..., None], ret[-1], new_cur))
+#
+#     ret = torch.cat(ret[::-1], dim=1).detach().cpu().tolist()
+#     return [ret[i][:l] for i, l in enumerate(length.tolist())]
 
-    back_pointers = []
-    for i in range(1, length.max().item()):
-        new_scores, back_pointer = torch.max(log.mul(scores[..., None], transition[i]), dim=-2)
-        scores = torch.where(padding_mask[i, ..., None], scores, new_scores)
-        back_pointers.append(back_pointer)
 
-    ret = [torch.argmax(log.mul(scores, end_transition[None, :]), dim=-1, keepdim=True)]
-    for i, back_pointer in reversed(list(enumerate(back_pointers, start=1))):
-        new_cur = back_pointer.gather(dim=-1, index=ret[-1])
-        ret.append(torch.where(padding_mask[i, ..., None], ret[-1], new_cur))
+def viterbi(
+        log_potentials: PackedSequence, instr: BatchInstr,
+        transition: Tensor, start_transition: Tensor, end_transition: Tensor, unit: Tensor):
+    src, dst, lhs, rhs, padding_mask = obtain_indices(log_potentials._replace(
+        data=torch.arange(log_potentials.data.size(0), dtype=torch.long, device=log_potentials.data.device),
+    ))
 
-    ret = torch.cat(ret[::-1], dim=1).detach().cpu().tolist()
-    return [ret[i][:l] for i, l in enumerate(length.tolist())]
+    start = max.mul(start_transition[None, :], log_potentials.data[src, :])  # [bsz, tag]
+    end = end_transition  # [tag]
+
+    max_partitions = max.mul(transition[None, :, :], log_potentials.data[:, None, :])  # [pln,  tag, tag]
+    max_partitions = torch.where(padding_mask[:, None, None], unit[None, :, :], max_partitions)
+
+    max_partitions = max.reduce(
+        pack=log_potentials._replace(data=max_partitions), instr=instr,
+    )
+    max_partitions = max.mv(max.vm(start, max_partitions), end)
+
+    ans, = torch.autograd.grad(
+        max_partitions, log_potentials.data, torch.ones_like(max_partitions),
+        retain_graph=False, create_graph=False, allow_unused=False,
+    )
+    return log_potentials._replace(data=ans.argmax(dim=-1))
 
 
 class CrfDistribution(distributions.Distribution):
@@ -123,15 +148,10 @@ class CrfDistribution(distributions.Distribution):
 
     @lazy_property
     def argmax(self) -> List[List[int]]:
-        log_potentials, length = pad_packed_sequence(self.log_potentials, batch_first=False)
-        padding_mask = build_mask(
-            length=length, padding_mask=True, batch_first=False,
-            device=log_potentials.device,
-        )
-
         return viterbi(
-            log_potentials=log_potentials, padding_mask=padding_mask, length=length,
-            transition=self.transition, start_transition=self.start_transition, end_transition=self.end_transition,
+            log_potentials=self.log_potentials, instr=self.instr,
+            transition=self.transition, start_transition=self.start_transition,
+            end_transition=self.end_transition, unit=self.unit,
         )
 
 
@@ -200,7 +220,7 @@ class CrfDecoderABC(nn.Module):
         return dist, target
 
     def fit(self, log_potentials: Union[PackedSequence, Tensor], target: Union[PackedSequence, Tensor],
-            seq_ptr: PackedSequence = None, lengths: Tensor = None, instr: BatchInstr = None) -> List[List[int]]:
+            seq_ptr: PackedSequence = None, lengths: Tensor = None, instr: BatchInstr = None) -> Tensor:
         dist, target = self.forward(
             log_potentials=log_potentials, target=target,
             seq_ptr=seq_ptr, lengths=lengths, instr=instr,
