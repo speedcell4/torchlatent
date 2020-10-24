@@ -2,7 +2,6 @@ from typing import Optional, List, Tuple
 
 import torch
 from torch import Tensor
-from torch import jit
 from torch.nn.utils.rnn import PackedSequence
 
 
@@ -17,7 +16,6 @@ def build_build_unit(zero: float, one: float):
 
 
 def build_vm_fn(mul_fn, sum_fn):
-    @jit.script
     def vm_fn(x: Tensor, y: Tensor) -> Tensor:
         return sum_fn(mul_fn(x.unsqueeze(-1), y), -2)
 
@@ -25,7 +23,6 @@ def build_vm_fn(mul_fn, sum_fn):
 
 
 def build_mv_fn(mul_fn, sum_fn):
-    @jit.script
     def mv_fn(x: Tensor, y: Tensor) -> Tensor:
         return sum_fn(mul_fn(x, y.unsqueeze(-2)), -1)
 
@@ -33,7 +30,6 @@ def build_mv_fn(mul_fn, sum_fn):
 
 
 def build_mm_fn(mul_fn, sum_fn):
-    @jit.script
     def mm_fn(x: Tensor, y: Tensor) -> Tensor:
         return sum_fn(mul_fn(x.unsqueeze(-1), y.unsqueeze(-3)), -2)
 
@@ -41,7 +37,6 @@ def build_mm_fn(mul_fn, sum_fn):
 
 
 def build_reduce_fn(mm_fn):
-    @jit.script
     def reduce_fn(pack: PackedSequence, instr: Tuple[Tensor, Optional[Tensor], Tensor, List[int], int]) -> Tensor:
         src, instr, dst, batch_sizes, num_steps = instr
 

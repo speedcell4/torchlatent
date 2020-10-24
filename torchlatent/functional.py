@@ -1,10 +1,8 @@
 import torch
 from torch import Tensor
-from torch import jit
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 
 
-@jit.script
 def logsumexp(x: Tensor, dim: int) -> Tensor:
     m, _ = x.max(dim=dim)
     mask = m == -float('inf')
