@@ -4,42 +4,28 @@ import torch
 from torch import Tensor
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
-from torch.nn import functional as F
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 from torch.nn.utils.rnn import pack_sequence
-from torch.nn.utils.rnn import pad_packed_sequence
+from torchrua import roll_packed_sequence
+from torchrua.indexing import select_head, select_last
 
 from torchlatent.functional import build_seq_ptr
 from torchlatent.instr import BatchInstr, build_crf_batch_instr
 from torchlatent.semiring import log, max
 
 
-def obtain_indices(pack: PackedSequence) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
-    data, lengths = pad_packed_sequence(
-        pack, batch_first=True, padding_value=-1,
-    )
-    index = torch.arange(0, lengths.size(0), dtype=torch.long, device=data.device)
-
-    src: Tensor = data[:, 0]
-    dst: Tensor = data[index, lengths - 1]
-
-    lhs: Tensor = pack_padded_sequence(
-        F.pad(data, [1, 0, 0, 0], value=-1),
-        lengths=lengths, batch_first=True, enforce_sorted=False,
-    ).data
-    rhs: Tensor = pack.data
-
-    return src, dst, lhs.clamp_min(0), rhs, lhs == -1
-
-
 def compute_log_scores(
         log_potentials: PackedSequence, target: PackedSequence, seq_ptr: PackedSequence,
         transition: Tensor, start_transition: Tensor, end_transition: Tensor) -> Tensor:
-    src, dst, lhs, rhs, padding_mask = obtain_indices(target)
+    lhs = roll_packed_sequence(target, offset=1)
 
     e = log_potentials.data.gather(dim=-1, index=target.data[:, None])[:, 0]
-    t = transition[lhs, rhs].masked_fill(padding_mask, log.one)
+    t = transition[lhs.data, target.data]
+    t[:target.batch_sizes[0].item()] = log.one
+
+    src = select_head(target, unsort=True)
+    dst = select_last(target, unsort=True)
 
     return (start_transition[src] + end_transition[dst]).scatter_add(dim=0, index=seq_ptr.data, src=log.mul(e, t))
 
