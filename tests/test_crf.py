@@ -1,30 +1,36 @@
 import torch
-from hypothesis import given, strategies as st
+from hypothesis import given, strategies as st, settings
 from torchcrf import CRF
 
 from torchlatent.crf import CrfDecoder
 from torchlatent.functional import build_mask
 
+if torch.cuda.is_available():
+    device = torch.device('cuda:0')
+else:
+    device = torch.device('cpu')
 
+
+@settings(deadline=None)
 @given(
     batch_size=st.integers(1, 12),
     sentence_length=st.integers(2, 12),  # TODO: check sentence_length = 1 case
     num_tags=st.integers(1, 12),
 )
 def test_crf_decoder_correctness(batch_size, sentence_length, num_tags):
-    decoder1 = CrfDecoder(num_tags=num_tags, batch_first=True)
-    decoder2 = CRF(num_tags, batch_first=True)
+    decoder1 = CrfDecoder(num_tags=num_tags, batch_first=True).to(device=device)
+    decoder2 = CRF(num_tags, batch_first=True).to(device=device)
     decoder2.transitions.data[:] = decoder1.transition.data[:]
     decoder2.start_transitions.data[:] = decoder1.start_transition.data[:]
     decoder2.end_transitions.data[:] = decoder1.end_transition.data[:]
 
-    emission = torch.randn((batch_size, sentence_length, num_tags))
+    emission = torch.randn((batch_size, sentence_length, num_tags), device=device)
     emission1 = emission.clone().requires_grad_(True)
     emission2 = emission.clone().requires_grad_(True)
 
-    lengths = torch.randint(0, sentence_length, (batch_size,)) + 1
-    mask = build_mask(lengths, padding_mask=False, batch_first=True, max_length=sentence_length)
-    target = torch.randint(0, num_tags, (batch_size, sentence_length))
+    lengths = torch.randint(0, sentence_length, (batch_size,), device=device) + 1
+    mask = build_mask(lengths, padding_mask=False, batch_first=True, max_length=sentence_length, device=device)
+    target = torch.randint(0, num_tags, (batch_size, sentence_length), device=device)
 
     log_prob1 = decoder1.fit(log_potentials=emission1, target=target, lengths=lengths)
     log_prob2 = decoder2(emissions=emission2, tags=target, mask=mask, reduction='none')
