@@ -6,55 +6,42 @@
 ## Requirements
 
 - Python 3.7
-- PyTorch 1.4.0 
+- PyTorch 1.6.0 
 
 ## Installation
 
-`python3 -m pip install git+https://github.com/speedcell4/torchlatent.git`
+`python3 -m pip torchlatent`
 
 ## Quickstart
 
-Simply provide your batch-level `log_potentials` along with its `lengths`, and the corresponding target label sequence `target`, then call `CrfDecoder.fit` to obtain the log-likelihood or `CrfDecoder.decode` to search the most likely label sequence.
-
 ```python
 import torch
+from torch.nn.utils.rnn import pack_sequence
 
 from torchlatent.crf import CrfDecoder
 
-batch_size = 7
-sentence_length = 11
-num_tags = 13
+num_tags = 7
 
-layer = CrfDecoder(num_tags=num_tags)
+decoder = CrfDecoder(num_tags=num_tags)
 
-log_potentials = torch.randn((batch_size, sentence_length, num_tags))
-lengths = torch.randint(0, sentence_length, (batch_size,)) + 1
-target = torch.randint(0, num_tags, (batch_size, sentence_length))
+emissions = pack_sequence([
+    torch.randn((5, num_tags)),
+    torch.randn((2, num_tags)),
+    torch.randn((3, num_tags)),
+], enforce_sorted=False)
+emissions.data.requires_grad_(True)
 
-print(layer.fit(emissions=log_potentials, tags=target, lengths=lengths))
-print(layer.decode(emissions=log_potentials, lengths=lengths))
-```
+tags = pack_sequence([
+    torch.randint(0, num_tags, (5,)),
+    torch.randint(0, num_tags, (2,)),
+    torch.randint(0, num_tags, (3,)),
+], enforce_sorted=False)
 
-However, handling the sentences in mini-batch requires cumbersomely compiling their indices on-the-fly. Thus, preparing their indices `instr` and `seq_ptr` through calling `build_crf_batch_instr` and `build_seq_ptr` ahead and converting your `log_potentials` and `target` to `PackedSequence` form can bring you further accelerations.
+print(decoder.fit(emissions, tags, reduction='sum'))
+print(decoder.decode(emissions))
 
-```python
-from torch.nn.utils.rnn import pack_padded_sequence
-from torchlatent.crf import build_crf_batched_instr
-from torchrua import batch_indices
-
-log_potentials = pack_padded_sequence(
-    log_potentials, lengths=lengths,
-    batch_first=True, enforce_sorted=False,
-)
-instr = build_crf_batched_instr(lengths=lengths, device=log_potentials.data.device)
-seq_ptr = build_seq_ptr(lengths=lengths, device=log_potentials.data.device)
-target = pack_padded_sequence(
-    target, lengths=lengths,
-    batch_first=True, enforce_sorted=False,
-)
-
-print(layer.fit(emissions=log_potentials, tags=target, batch_ptr=seq_ptr, instr=instr))
-print(layer.decode(emissions=log_potentials, batch_ptr=seq_ptr, instr=instr))
+# tensor(-24.1321, grad_fn=<SumBackward0>)
+# PackedSequence(data=tensor([1, 3, 5, 6, 0, 2, 5, 2, 1, 1]), batch_sizes=tensor([3, 3, 2, 1, 1]), sorted_indices=tensor([0, 2, 1]), unsorted_indices=tensor([0, 2, 1]))
 ```
 
 ## Latent Structures and Utilities
