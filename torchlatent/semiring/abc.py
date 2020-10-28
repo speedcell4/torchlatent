@@ -5,35 +5,35 @@ from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 
 
-def build_build_unit(zero: float, one: float):
+def build_unit_fn(zero: float, one: float):
     def build_unit(x: Tensor) -> Tensor:
-        c = torch.eye(x.size(-1), device=x.device, dtype=torch.bool)
-        o = torch.full(c.size(), fill_value=one, device=x.device, dtype=torch.float32)
-        z = torch.full(c.size(), fill_value=zero, device=x.device, dtype=torch.float32)
-        return torch.where(c, o, z)
+        mask = torch.eye(x.size(-1), device=x.device, dtype=torch.bool)
+        ones = torch.full(mask.size(), fill_value=one, device=x.device, dtype=torch.float32)
+        zeros = torch.full(mask.size(), fill_value=zero, device=x.device, dtype=torch.float32)
+        return torch.where(mask, ones, zeros)
 
     return build_unit
 
 
-def build_vm_fn(mul_fn, sum_fn):
-    def vm_fn(x: Tensor, y: Tensor) -> Tensor:
+def build_bvm_fn(mul_fn, sum_fn):
+    def bvm_fn(x: Tensor, y: Tensor):
         return sum_fn(mul_fn(x.unsqueeze(-1), y), -2)
 
-    return vm_fn
+    return bvm_fn
 
 
-def build_mv_fn(mul_fn, sum_fn):
-    def mv_fn(x: Tensor, y: Tensor) -> Tensor:
+def build_bmv_fn(mul_fn, sum_fn):
+    def bmv_fn(x: Tensor, y: Tensor):
         return sum_fn(mul_fn(x, y.unsqueeze(-2)), -1)
 
-    return mv_fn
+    return bmv_fn
 
 
-def build_mm_fn(mul_fn, sum_fn):
-    def mm_fn(x: Tensor, y: Tensor) -> Tensor:
+def build_bmm_fn(mul_fn, sum_fn):
+    def bmm_fn(x: Tensor, y: Tensor):
         return sum_fn(mul_fn(x.unsqueeze(-1), y.unsqueeze(-3)), -2)
 
-    return mm_fn
+    return bmm_fn
 
 
 def build_reduce_fn(mm_fn):

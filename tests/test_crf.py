@@ -1,9 +1,13 @@
 import torch
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, strategies as st
+from hypothesis import settings
+from torch import Tensor
+from torch.nn.utils.rnn import pack_padded_sequence
+from torch.nn.utils.rnn import pad_packed_sequence
 from torchcrf import CRF
+from torchrua import lengths_to_mask
 
 from torchlatent.crf import CrfDecoder
-from torchlatent.functional import build_mask
 
 if torch.cuda.is_available():
     device = torch.device('cuda:0')
@@ -11,33 +15,85 @@ else:
     device = torch.device('cpu')
 
 
+def assert_equal(x: Tensor, y: Tensor) -> None:
+    assert x.size() == y.size(), f'{x.size()} != {y.size()}'
+    assert torch.allclose(x, y, rtol=1e-5, atol=1e-5), f'{x.view(-1)} != {y.view(-1)}'
+
+
 @settings(deadline=None)
 @given(
     batch_size=st.integers(1, 12),
-    sentence_length=st.integers(2, 12),  # TODO: check sentence_length = 1 case
+    total_length=st.integers(1, 12),
+    num_tags=st.integers(1, 12),
+    reduction=st.sampled_from(['none', 'sum', 'mean', 'token_mean']),
+)
+def test_crf_decoder_fit(batch_size, total_length, num_tags, reduction):
+    our_decoder = CrfDecoder(num_tags=num_tags).to(device=device)
+    their_decoder = CRF(num_tags, batch_first=True).to(device=device)
+    their_decoder.transitions.data[:] = our_decoder.transitions.data[:]
+    their_decoder.start_transitions.data[:] = our_decoder.start_transitions.data[:]
+    their_decoder.end_transitions.data[:] = our_decoder.end_transitions.data[:]
+
+    emissions = torch.randn((batch_size, total_length, num_tags), device=device)
+    lengths = torch.randint(0, total_length, (batch_size,), device=device) + 1
+    lengths[torch.randint(0, batch_size, ()).item()] = total_length
+
+    our_emissions = pack_padded_sequence(emissions, lengths=lengths, batch_first=True, enforce_sorted=False)
+    our_emissions.data.requires_grad_(True)
+    their_emissions = emissions.clone().requires_grad_(True)
+
+    tags = torch.randint(0, num_tags, (batch_size, total_length), device=device)
+    our_tags = pack_padded_sequence(tags, lengths=lengths, batch_first=True, enforce_sorted=False)
+    their_tags = tags.clone()
+    mask = lengths_to_mask(lengths=lengths, filling_mask=True, batch_first=True, device=device)
+
+    our_log_prob = our_decoder.fit(emissions=our_emissions, tags=our_tags, reduction=reduction)
+    their_log_prob = their_decoder(emissions=their_emissions, tags=their_tags, mask=mask, reduction=reduction)
+    assert_equal(our_log_prob, their_log_prob)
+
+    our_emissions.data.grad = None
+    their_emissions.grad = None
+    our_log_prob.sum().backward()
+    their_log_prob.sum().backward()
+    assert_equal(our_decoder.transitions, their_decoder.transitions)
+    assert_equal(our_decoder.start_transitions, their_decoder.start_transitions)
+    assert_equal(our_decoder.end_transitions, their_decoder.end_transitions)
+
+    our_emissions_grad = our_emissions.data.grad
+    their_emissions_grad = pack_padded_sequence(
+        their_emissions.grad, lengths=lengths, batch_first=True, enforce_sorted=False,
+    ).data
+
+    assert_equal(our_emissions_grad, their_emissions_grad)
+
+
+@settings(deadline=None)
+@given(
+    batch_size=st.integers(1, 12),
+    total_length=st.integers(1, 12),
     num_tags=st.integers(1, 12),
 )
-def test_crf_decoder_correctness(batch_size, sentence_length, num_tags):
-    decoder1 = CrfDecoder(num_tags=num_tags, batch_first=True).to(device=device)
-    decoder2 = CRF(num_tags, batch_first=True).to(device=device)
-    decoder2.transitions.data[:] = decoder1.transition.data[:]
-    decoder2.start_transitions.data[:] = decoder1.start_transition.data[:]
-    decoder2.end_transitions.data[:] = decoder1.end_transition.data[:]
+def test_crf_decoder_decode(batch_size, total_length, num_tags):
+    our_decoder = CrfDecoder(num_tags=num_tags).to(device=device)
+    their_decoder = CRF(num_tags, batch_first=True).to(device=device)
+    their_decoder.transitions.data[:] = our_decoder.transitions.data[:]
+    their_decoder.start_transitions.data[:] = our_decoder.start_transitions.data[:]
+    their_decoder.end_transitions.data[:] = our_decoder.end_transitions.data[:]
 
-    emission = torch.randn((batch_size, sentence_length, num_tags), device=device)
-    emission1 = emission.clone().requires_grad_(True)
-    emission2 = emission.clone().requires_grad_(True)
+    emissions = torch.randn((batch_size, total_length, num_tags), device=device)
+    lengths = torch.randint(0, total_length, (batch_size,), device=device) + 1
+    lengths[torch.randint(0, batch_size, ()).item()] = total_length
 
-    lengths = torch.randint(0, sentence_length, (batch_size,), device=device) + 1
-    mask = build_mask(lengths, padding_mask=False, batch_first=True, max_length=sentence_length, device=device)
-    target = torch.randint(0, num_tags, (batch_size, sentence_length), device=device)
+    our_emissions = pack_padded_sequence(emissions, lengths=lengths, batch_first=True, enforce_sorted=False)
+    our_emissions.data.requires_grad_(True)
+    their_emissions = emissions.clone().requires_grad_(True)
 
-    log_prob1 = decoder1.fit(log_potentials=emission1, target=target, lengths=lengths)
-    log_prob2 = decoder2(emissions=emission2, tags=target, mask=mask, reduction='none')
-    assert torch.allclose(log_prob1, log_prob2, rtol=1e-5, atol=1e-5)
+    mask = lengths_to_mask(lengths=lengths, filling_mask=True, batch_first=True, device=device)
 
-    emission1.grad = None
-    emission2.grad = None
-    log_prob1.backward(torch.ones_like(log_prob1))
-    log_prob2.backward(torch.ones_like(log_prob2))
-    assert torch.allclose(emission1.grad, emission2.grad, rtol=1e-5, atol=1e-5)
+    our_predictions = our_decoder.decode(emissions=our_emissions)
+    our_predictions, lengths = pad_packed_sequence(our_predictions, batch_first=True)
+
+    their_predictions = their_decoder.decode(emissions=their_emissions, mask=mask)
+
+    for i, length in enumerate(lengths.detach().cpu().tolist()):
+        assert our_predictions[i, :length].detach().cpu().tolist() == their_predictions[i]

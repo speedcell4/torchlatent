@@ -3,7 +3,7 @@ from typing import List
 
 import torch
 
-from torchlatent.instr import build_crf_instr, collate_crf_instr, BatchInstr, Instr
+from torchlatent.instr import build_crf_instr, collate_crf_instr, BatchedInstr, Instr
 
 try:
     from torchglyph.proc import Proc
@@ -22,7 +22,7 @@ try:
         def extra_repr(self) -> str:
             return f'{self.device}'
 
-        def __call__(self, collected_instr: List[Instr], *args, **kwargs) -> BatchInstr:
+        def __call__(self, collected_instr: List[Instr], *args, **kwargs) -> BatchedInstr:
             return collate_crf_instr(collected_instr=collected_instr, device=self.device)
 
 except ImportError:

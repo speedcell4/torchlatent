@@ -3,7 +3,7 @@ from logging import getLogger
 import torch
 from torch import Tensor
 
-from torchlatent.semiring.abc import build_build_unit, build_mv_fn, build_vm_fn, build_mm_fn, build_reduce_fn
+from torchlatent.semiring.abc import build_unit_fn, build_bmv_fn, build_bvm_fn, build_bmm_fn, build_reduce_fn
 
 logger = getLogger(__name__)
 
@@ -26,21 +26,21 @@ def prod(x: Tensor, dim: int) -> Tensor:
 
 zero: float = float('-inf')
 one: float = 0
-build_unit = build_build_unit(zero=zero, one=one)
+build_unit = build_unit_fn(zero=zero, one=one)
 
-mv = build_mv_fn(mul_fn=mul, sum_fn=sum)
-vm = build_vm_fn(mul_fn=mul, sum_fn=sum)
+bmv = build_bmv_fn(mul_fn=mul, sum_fn=sum)
+bvm = build_bvm_fn(mul_fn=mul, sum_fn=sum)
 
 try:
 
-    from bym import maxbmm as mm
+    from bym import maxbmm as bmm
 
     logger.info('using bym.maxbmm')
 
 except ImportError:
 
-    mm = build_mm_fn(mul_fn=mul, sum_fn=sum)
+    bmm = build_bmm_fn(mul_fn=mul, sum_fn=sum)
 
     logger.info('using naive.maxbmm')
 
-reduce = build_reduce_fn(mm_fn=mm)
+reduce = build_reduce_fn(mm_fn=bmm)

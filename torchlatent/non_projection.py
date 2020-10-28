@@ -1,20 +1,22 @@
-from typing import Any, Tuple
+from typing import Any
+from typing import Tuple
 
 import torch
 from torch import Tensor
+from torch import distributions
 from torch.distributions.utils import lazy_property
 
-from torchlatent.abc import LatentDistribution
 from torchlatent.semiring import log, std
 
 
-class NonProjectionDistribution(LatentDistribution):
+class NonProjectionDistribution(distributions.Distribution):
     def __init__(self, energy: Tensor, length: Tensor) -> None:
-        super(NonProjectionDistribution, self).__init__(log_potentials=energy)
+        super(NonProjectionDistribution, self).__init__()
         assert energy.dim() == 4
         assert energy.size(-2) == energy.size(-1)
 
         self.energy = energy
+        self.log_potentials = energy
         self.unlabeled = log.sum(energy, dim=1)
 
         self.length = length

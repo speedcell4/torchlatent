@@ -3,10 +3,17 @@ from logging import getLogger
 import torch
 from torch import Tensor
 
-from torchlatent.functional import logsumexp
-from torchlatent.semiring.abc import build_build_unit, build_mv_fn, build_vm_fn, build_mm_fn, build_reduce_fn
+from torchlatent.semiring.abc import build_unit_fn, build_bmv_fn, build_bvm_fn, build_bmm_fn, build_reduce_fn
 
 logger = getLogger(__name__)
+
+
+def logsumexp(x: Tensor, dim: int) -> Tensor:
+    m, _ = x.max(dim=dim)
+    mask = m == -float('inf')
+
+    s = (x - m.masked_fill_(mask, 0).unsqueeze(dim=dim)).exp().sum(dim=dim)
+    return s.masked_fill_(mask, 1).log() + m.masked_fill_(mask, -float('inf'))
 
 
 def add(lhs: Tensor, rhs: Tensor) -> Tensor:
@@ -27,21 +34,21 @@ def prod(x: Tensor, dim: int) -> Tensor:
 
 zero: float = -float('inf')
 one: float = 0
-build_unit = build_build_unit(zero=zero, one=one)
+build_unit = build_unit_fn(zero=zero, one=one)
 
-mv = build_mv_fn(mul_fn=mul, sum_fn=sum)
-vm = build_vm_fn(mul_fn=mul, sum_fn=sum)
+bmv = build_bmv_fn(mul_fn=mul, sum_fn=sum)
+bvm = build_bvm_fn(mul_fn=mul, sum_fn=sum)
 
 try:
 
-    from bym import logbmm as mm
+    from bym import logbmm as bmm
 
     logger.info('using bym.logbmm')
 
 except ImportError:
 
-    mm = build_mm_fn(mul_fn=mul, sum_fn=sum)
+    bmm = build_bmm_fn(mul_fn=mul, sum_fn=sum)
 
     logger.info('using naive.logbmm')
 
-reduce = build_reduce_fn(mm_fn=mm)
+reduce = build_reduce_fn(mm_fn=bmm)

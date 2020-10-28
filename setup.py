@@ -14,6 +14,7 @@ setup(
     python_requires='>=3.7',
     install_requires=[
         'numpy',
+        'torchrua',
     ],
     extras_require={
         'dev': [
@@ -23,6 +24,7 @@ setup(
         ],
         'benchmark': [
             'aku',
+            'tqdm',
             'pytorch-crf',
         ]
     }
