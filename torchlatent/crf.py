@@ -49,7 +49,7 @@ def compute_partitions(semiring):
                 unsorted_indices=emissions.unsorted_indices,
             ), instr=instr,
         )
-        return semiring.mv(semiring.vm(start, transitions), end)
+        return semiring.bmv(semiring.bvm(start, transitions), end)
 
     return _compute_partitions_fn
 
