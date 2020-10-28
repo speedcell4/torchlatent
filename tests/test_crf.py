@@ -25,8 +25,9 @@ def assert_equal(x: Tensor, y: Tensor) -> None:
     batch_size=st.integers(1, 12),
     total_length=st.integers(1, 12),
     num_tags=st.integers(1, 12),
+    reduction=st.sampled_from(['none', 'sum', 'mean', 'token_mean']),
 )
-def test_crf_decoder_fit(batch_size, total_length, num_tags):
+def test_crf_decoder_fit(batch_size, total_length, num_tags, reduction):
     our_decoder = CrfDecoder(num_tags=num_tags).to(device=device)
     their_decoder = CRF(num_tags, batch_first=True).to(device=device)
     their_decoder.transitions.data[:] = our_decoder.transitions.data[:]
@@ -46,8 +47,8 @@ def test_crf_decoder_fit(batch_size, total_length, num_tags):
     their_tags = tags.clone()
     mask = lengths_to_mask(lengths=lengths, filling_mask=True, batch_first=True, device=device)
 
-    our_log_prob = our_decoder.fit(emissions=our_emissions, tags=our_tags)
-    their_log_prob = their_decoder(emissions=their_emissions, tags=their_tags, mask=mask, reduction='none')
+    our_log_prob = our_decoder.fit(emissions=our_emissions, tags=our_tags, reduction=reduction)
+    their_log_prob = their_decoder(emissions=their_emissions, tags=their_tags, mask=mask, reduction=reduction)
     assert_equal(our_log_prob, their_log_prob)
 
     our_emissions.data.grad = None

@@ -1,5 +1,5 @@
 from abc import ABCMeta
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 from torch import Tensor
@@ -144,8 +144,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
 
     def forward(self, emissions: PackedSequence,
                 tags: Optional[PackedSequence] = None, lengths: Optional[Tensor] = None,
-                batch_ptr: Optional[PackedSequence] = None, instr: Optional[BatchedInstr] = None) \
-            -> Tuple[CrfDistribution, Optional[PackedSequence]]:
+                batch_ptr: Optional[PackedSequence] = None, instr: Optional[BatchedInstr] = None):
         emissions, tags, batch_ptr, instr = self._validate(
             emissions=emissions, tags=tags, lengths=lengths,
             batch_ptr=batch_ptr, instr=instr,
@@ -164,14 +163,29 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
 
         return dist, tags
 
-    def fit(self, emissions: PackedSequence, tags: PackedSequence, lengths: Optional[Tensor] = None,
+    def fit(self, emissions: PackedSequence, tags: PackedSequence,
+            reduction: str = 'none', lengths: Optional[Tensor] = None,
             batch_ptr: Optional[PackedSequence] = None, instr: Optional[BatchedInstr] = None) -> Tensor:
         dist, tags = self(
             emissions=emissions, tags=tags, lengths=lengths,
             batch_ptr=batch_ptr, instr=instr,
         )
 
-        return dist.log_prob(tags)
+        loss = dist.log_prob(tags)
+
+        if reduction == 'none':
+            return loss
+        if reduction == 'sum':
+            return loss.sum()
+        if reduction == 'mean':
+            return loss.mean()
+        if reduction == 'batch_mean':
+            if lengths is None:
+                lengths = pack_to_lengths(pack=emissions, unsort=True, dtype=torch.float32)
+            return (loss / lengths.float()).mean()
+        if reduction == 'token_mean':
+            return loss.sum() / emissions.data.size(0)
+        raise NotImplementedError(f'{reduction} is not supported')
 
     def decode(self, emissions: PackedSequence, lengths: Optional[Tensor] = None,
                batch_ptr: Optional[PackedSequence] = None, instr: Optional[BatchedInstr] = None) -> PackedSequence:
