@@ -6,7 +6,7 @@ from torch import Tensor
 from torch.nn.utils.rnn import pack_sequence
 
 Instr = Tuple[Tensor, int, List[Tensor]]
-BatchInstr = Tuple[Tensor, Optional[Tensor], Tensor, List[int], int]
+BatchedInstr = Tuple[Tensor, Optional[Tensor], Tensor, List[int], int]
 
 
 def build_crf_instr(length: int) -> Instr:
@@ -30,7 +30,7 @@ def build_crf_instr(length: int) -> Instr:
     return src, dst, instr[::-1]
 
 
-def collate_crf_instr(collected_instr: List[Instr], device: torch.device = torch.device('cpu')) -> BatchInstr:
+def collate_crf_instr(collected_instr: List[Instr], device: torch.device = torch.device('cpu')) -> BatchedInstr:
     cnt, batch_src, batch_instr, batch_dst = 0, [], [], []
     for src, dst, instr in collected_instr:
         batch_src.append(src + cnt)
@@ -54,7 +54,8 @@ def collate_crf_instr(collected_instr: List[Instr], device: torch.device = torch
     return src.data.to(device=device), instr, batch_dst, batch_sizes, cnt
 
 
-def build_crf_batch_instr(lengths: Union[List[int], Tensor], device: torch.device = torch.device('cpu')) -> BatchInstr:
+def build_crf_batched_instr(lengths: Union[List[int], Tensor],
+                            device: torch.device = torch.device('cpu')) -> BatchedInstr:
     if torch.is_tensor(lengths):
         lengths = lengths.detach().cpu().tolist()
 

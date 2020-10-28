@@ -25,35 +25,36 @@ batch_size = 7
 sentence_length = 11
 num_tags = 13
 
-layer = CrfDecoder(num_tags=num_tags, batch_first=True)
+layer = CrfDecoder(num_tags=num_tags)
 
 log_potentials = torch.randn((batch_size, sentence_length, num_tags))
 lengths = torch.randint(0, sentence_length, (batch_size,)) + 1
 target = torch.randint(0, num_tags, (batch_size, sentence_length))
 
-print(layer.fit(log_potentials=log_potentials, target=target, lengths=lengths))
-print(layer.decode(log_potentials=log_potentials, lengths=lengths))
+print(layer.fit(emissions=log_potentials, tags=target, lengths=lengths))
+print(layer.decode(emissions=log_potentials, lengths=lengths))
 ```
 
 However, handling the sentences in mini-batch requires cumbersomely compiling their indices on-the-fly. Thus, preparing their indices `instr` and `seq_ptr` through calling `build_crf_batch_instr` and `build_seq_ptr` ahead and converting your `log_potentials` and `target` to `PackedSequence` form can bring you further accelerations.
 
 ```python
 from torch.nn.utils.rnn import pack_padded_sequence
-from torchlatent.crf import build_crf_batch_instr, build_seq_ptr
+from torchlatent.crf import build_crf_batched_instr
+from torchrua import batch_indices
 
 log_potentials = pack_padded_sequence(
     log_potentials, lengths=lengths,
     batch_first=True, enforce_sorted=False,
 )
-instr = build_crf_batch_instr(lengths=lengths, device=log_potentials.data.device)
+instr = build_crf_batched_instr(lengths=lengths, device=log_potentials.data.device)
 seq_ptr = build_seq_ptr(lengths=lengths, device=log_potentials.data.device)
 target = pack_padded_sequence(
     target, lengths=lengths,
     batch_first=True, enforce_sorted=False,
 )
 
-print(layer.fit(log_potentials=log_potentials, target=target, seq_ptr=seq_ptr, instr=instr))
-print(layer.decode(log_potentials=log_potentials, seq_ptr=seq_ptr, instr=instr))
+print(layer.fit(emissions=log_potentials, tags=target, batch_ptr=seq_ptr, instr=instr))
+print(layer.decode(emissions=log_potentials, batch_ptr=seq_ptr, instr=instr))
 ```
 
 ## Latent Structures and Utilities

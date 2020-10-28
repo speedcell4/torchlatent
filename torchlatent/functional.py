@@ -1,6 +1,5 @@
 import torch
 from torch import Tensor
-from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
 
 
 def logsumexp(x: Tensor, dim: int) -> Tensor:
@@ -24,9 +23,3 @@ def build_mask(length: Tensor, padding_mask: bool = True, batch_first: bool = Tr
     if not batch_first:
         mask = mask.transpose(0, 1)
     return mask.type(dtype).to(device or length.device).contiguous()
-
-
-@torch.no_grad()
-def build_seq_ptr(lengths: Tensor, device: torch.device) -> PackedSequence:
-    seq_ptr = torch.arange(lengths.size(0), device=device)[:, None].expand((-1, lengths.max().item()))
-    return pack_padded_sequence(seq_ptr, lengths=lengths, batch_first=True, enforce_sorted=False)
