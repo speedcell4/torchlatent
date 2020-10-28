@@ -40,7 +40,7 @@ def collate_crf_instr(collected_instr: List[Instr], device: torch.device = torch
 
     src = pack_sequence(batch_src, enforce_sorted=False)
     instr = [
-        torch.cat(instr, dim=0).to(device=device)
+        torch.cat(instr, dim=0)
         for instr in reversed(list(zip_longest(
             *batch_instr, fillvalue=torch.tensor([], dtype=torch.long)))
         )
@@ -49,7 +49,7 @@ def collate_crf_instr(collected_instr: List[Instr], device: torch.device = torch
     if len(instr) == 0:
         instr = None
     else:
-        instr = torch.cat(instr, dim=0)
+        instr = torch.cat(instr, dim=0).to(device=device)
     batch_dst = torch.tensor(batch_dst, dtype=torch.long, device=device)
     return src.data.to(device=device), instr, batch_dst, batch_sizes, cnt
 
