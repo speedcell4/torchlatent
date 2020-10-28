@@ -3,6 +3,7 @@ from hypothesis import given, strategies as st
 from hypothesis import settings
 from torch import Tensor
 from torch.nn.utils.rnn import pack_padded_sequence
+from torch.nn.utils.rnn import pad_packed_sequence
 from torchcrf import CRF
 from torchrua import lengths_to_mask
 
@@ -63,3 +64,35 @@ def test_crf_decoder_fit(batch_size, total_length, num_tags):
     ).data
 
     assert_equal(our_emissions_grad, their_emissions_grad)
+
+
+@settings(deadline=None)
+@given(
+    batch_size=st.integers(1, 12),
+    total_length=st.integers(1, 12),
+    num_tags=st.integers(1, 12),
+)
+def test_crf_decoder_decode(batch_size, total_length, num_tags):
+    our_decoder = CrfDecoder(num_tags=num_tags).to(device=device)
+    their_decoder = CRF(num_tags, batch_first=True).to(device=device)
+    their_decoder.transitions.data[:] = our_decoder.transitions.data[:]
+    their_decoder.start_transitions.data[:] = our_decoder.start_transitions.data[:]
+    their_decoder.end_transitions.data[:] = our_decoder.end_transitions.data[:]
+
+    emissions = torch.randn((batch_size, total_length, num_tags), device=device)
+    lengths = torch.randint(0, total_length, (batch_size,), device=device) + 1
+    lengths[torch.randint(0, batch_size, ()).item()] = total_length
+
+    our_emissions = pack_padded_sequence(emissions, lengths=lengths, batch_first=True, enforce_sorted=False)
+    our_emissions.data.requires_grad_(True)
+    their_emissions = emissions.clone().requires_grad_(True)
+
+    mask = lengths_to_mask(lengths=lengths, filling_mask=True, batch_first=True, device=device)
+
+    our_predictions = our_decoder.decode(emissions=our_emissions)
+    our_predictions, lengths = pad_packed_sequence(our_predictions, batch_first=True)
+
+    their_predictions = their_decoder.decode(emissions=their_emissions, mask=mask)
+
+    for i, length in enumerate(lengths.detach().cpu().tolist()):
+        assert our_predictions[i, :length].detach().cpu().tolist() == their_predictions[i]
