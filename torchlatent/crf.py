@@ -7,7 +7,7 @@ from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import batch_indices, pack_to_lengths
+from torchrua import batch_indices, packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
 from torchrua.indexing import select_head, select_last
 
@@ -134,7 +134,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
 
         if instr is None:
             if lengths is None:
-                lengths = pack_to_lengths(pack=emissions)
+                lengths = packed_sequence_to_lengths(pack=emissions, unsort=True)
             instr = build_crf_batched_instr(lengths=lengths, device=emissions.data.device)
 
         return emissions, tags, batch_ptr, instr
@@ -181,7 +181,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
             return loss.mean()
         if reduction == 'batch_mean':
             if lengths is None:
-                lengths = pack_to_lengths(pack=emissions, unsort=True, dtype=torch.float32)
+                lengths = packed_sequence_to_lengths(pack=emissions, unsort=True, dtype=torch.float32)
             return (loss / lengths.float()).mean()
         if reduction == 'token_mean':
             return loss.sum() / emissions.data.size(0)

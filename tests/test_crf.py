@@ -45,7 +45,7 @@ def test_crf_decoder_fit(batch_size, total_length, num_tags, reduction):
     tags = torch.randint(0, num_tags, (batch_size, total_length), device=device)
     our_tags = pack_padded_sequence(tags, lengths=lengths, batch_first=True, enforce_sorted=False)
     their_tags = tags.clone()
-    mask = lengths_to_mask(lengths=lengths, filling_mask=True, batch_first=True, device=device)
+    mask = lengths_to_mask(lengths=lengths, batch_first=True, device=device)
 
     our_log_prob = our_decoder.fit(emissions=our_emissions, tags=our_tags, reduction=reduction)
     their_log_prob = their_decoder(emissions=their_emissions, tags=their_tags, mask=mask, reduction=reduction)
@@ -88,7 +88,7 @@ def test_crf_decoder_decode(batch_size, total_length, num_tags):
     our_emissions.data.requires_grad_(True)
     their_emissions = emissions.clone().requires_grad_(True)
 
-    mask = lengths_to_mask(lengths=lengths, filling_mask=True, batch_first=True, device=device)
+    mask = lengths_to_mask(lengths=lengths, batch_first=True, device=device)
 
     our_predictions = our_decoder.decode(emissions=our_emissions)
     our_predictions, lengths = pad_packed_sequence(our_predictions, batch_first=True)

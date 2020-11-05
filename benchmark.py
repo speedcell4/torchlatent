@@ -39,13 +39,13 @@ def gen_pack(lengths: Tensor, num_tag: int, device: torch.device):
         dtype=torch.float32, device=device, requires_grad=True,
     )
     emissions = pack_padded_sequence(
-        emissions, lengths=lengths, batch_first=True, enforce_sorted=False,
+        emissions, lengths=lengths.cpu(), batch_first=True, enforce_sorted=False,
     )
     emissions.data.requires_grad_(True)
 
     tags = torch.randint(0, num_tag, (lengths.size(0), lengths.max().item()), dtype=torch.long, device=device)
     tags = pack_padded_sequence(
-        tags, lengths=lengths, batch_first=True, enforce_sorted=False,
+        tags, lengths=lengths.cpu(), batch_first=True, enforce_sorted=False,
     )
 
     return emissions, tags
