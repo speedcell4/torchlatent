@@ -5,11 +5,11 @@ from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 
 
-def build_unit_fn(zero: float, one: float):
+def build_unit_fn(zero: float, one: float, dtype: torch.dtype = torch.float32):
     def build_unit(x: Tensor) -> Tensor:
         mask = torch.eye(x.size(-1), device=x.device, dtype=torch.bool)
-        ones = torch.full(mask.size(), fill_value=one, device=x.device, dtype=torch.float32)
-        zeros = torch.full(mask.size(), fill_value=zero, device=x.device, dtype=torch.float32)
+        ones = torch.full(mask.size(), fill_value=one, device=x.device, dtype=dtype)
+        zeros = torch.full(mask.size(), fill_value=zero, device=x.device, dtype=dtype)
         return torch.where(mask, ones, zeros)
 
     return build_unit
@@ -40,10 +40,10 @@ def build_reduce_fn(mm_fn):
     def reduce_fn(pack: PackedSequence, instr: Tuple[Tensor, Optional[Tensor], Tensor, List[int], int]) -> Tensor:
         src, instr, dst, batch_sizes, num_steps = instr
 
-        data = torch.empty(
-            (num_steps,) + pack.data.size()[1:],
+        data: Tensor = torch.zeros(
+            (num_steps,) + pack.data.size()[1:], requires_grad=False,
             dtype=pack.data.dtype, device=pack.data.device,
-        ).requires_grad_(False)
+        )
         data[src] = pack.data
 
         if instr is not None:
