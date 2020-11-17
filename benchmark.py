@@ -29,7 +29,7 @@ def gen_pad(lengths: Tensor, num_tag: int, device: torch.device):
         dtype=torch.float32, device=device, requires_grad=True,
     )
     tags = torch.randint(0, num_tag, (lengths.size(0), lengths.max().item()), dtype=torch.long, device=device)
-    mask = lengths_to_mask(lengths=lengths, filling_mask=True, batch_first=True, device=device)
+    mask = lengths_to_mask(lengths=lengths, batch_first=True, device=device)
     return emissions, tags, mask
 
 
