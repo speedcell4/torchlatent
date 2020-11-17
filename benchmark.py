@@ -1,7 +1,7 @@
 from datetime import datetime
 
 import torch
-from aku import App
+from aku import Aku
 from torch import Tensor
 from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
@@ -103,10 +103,10 @@ def check_pack(decoder: CrfDecoder, batched_lengths, num_tags, device):
     print(f'torchlatent.decode => {decode_timer.seconds:.4f}')
 
 
-app = App()
+app = Aku()
 
 
-@app.register
+@app.option
 def main(num_examples: int = 100, batch_size: int = 10, total_length: int = 120, num_tags: int = 10, device: int = -1):
     if device < 0:
         device = torch.device('cpu')
