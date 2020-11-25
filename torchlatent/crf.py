@@ -20,14 +20,12 @@ def compute_log_scores(
         transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
     shifted_tags = roll_packed_sequence(tags, offset=1)
 
-    emissions = emissions.data.gather(dim=-1, index=tags.data[:, None])[:, 0]
-    transitions = transitions[shifted_tags.data, tags.data]
-    transitions[:tags.batch_sizes[0].item()] = log.one
+    emissions = emissions.data.gather(dim=-1, index=tags.data[:, None])[:, 0]  # [p]
 
-    src = select_head(tags, unsort=True)
-    dst = select_last(tags, unsort=True)
+    transitions = transitions[shifted_tags.data, tags.data]  # [p]
+    transitions[:tags.batch_sizes[0].item()] = start_transitions[select_head(tags, unsort=False)]
 
-    scores = log.mul(start_transitions[src], end_transitions[dst])
+    scores = end_transitions[select_last(tags, unsort=True)]  # [b]
     return scores.scatter_add(dim=0, index=batch_ptr.data, src=log.mul(emissions, transitions))
 
 
@@ -35,10 +33,10 @@ def compute_partitions(semiring):
     def _compute_partitions_fn(
             emissions: PackedSequence, instr: BatchedInstr,
             transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor, unit: Tensor) -> Tensor:
-        start = semiring.mul(start_transitions[None, :], emissions.data[emissions.unsorted_indices, :])  # [bsz, tag]
-        end = end_transitions  # [tag]
+        start = semiring.mul(start_transitions[None, :], emissions.data[emissions.unsorted_indices, :])  # [p, t]
+        end = end_transitions  # [t]
 
-        transitions = semiring.mul(transitions[None, :, :], emissions.data[:, None, :])  # [pln,  tag, tag]
+        transitions = semiring.mul(transitions[None, :, :], emissions.data[:, None, :])  # [p, t, t]
         transitions[:emissions.batch_sizes[0]] = unit[None, :, :]
 
         transitions = semiring.reduce(
@@ -228,5 +226,5 @@ class CrfDecoder(CrfDecoderABC):
 
     def extra_repr(self) -> str:
         return ', '.join([
-            f'num_ner={self.num_tags}',
+            f'num_tags={self.num_tags}',
         ])
