@@ -30,17 +30,5 @@ build_unit = build_unit_fn(zero=zero, one=one)
 
 bmv = build_bmv_fn(mul_fn=mul, sum_fn=sum)
 bvm = build_bvm_fn(mul_fn=mul, sum_fn=sum)
-
-try:
-
-    from bym import maxbmm as bmm
-
-    logger.info('using bym.maxbmm')
-
-except ImportError:
-
-    bmm = build_bmm_fn(mul_fn=mul, sum_fn=sum)
-
-    logger.info('using naive.maxbmm')
-
+bmm = build_bmm_fn(mul_fn=mul, sum_fn=sum)
 reduce = build_reduce_fn(mm_fn=bmm)
