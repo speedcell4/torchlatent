@@ -18,6 +18,7 @@ setup(
     ],
     extras_require={
         'dev': [
+            'einops',
             'pytest',
             'hypothesis',
             'pytorch-crf',

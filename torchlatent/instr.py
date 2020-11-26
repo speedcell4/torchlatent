@@ -30,7 +30,10 @@ def build_crf_instr(length: int) -> Instr:
     return src, dst, instr[::-1]
 
 
-def collate_crf_instr(collected_instr: List[Instr], device: torch.device = torch.device('cpu')) -> BatchedInstr:
+def collate_crf_instr(
+        collected_instr: List[Instr],
+        sorted_indices: Tensor = None,
+        device: torch.device = torch.device('cpu')) -> BatchedInstr:
     cnt, batch_src, batch_instr, batch_dst = 0, [], [], []
     for src, dst, instr in collected_instr:
         batch_src.append(src + cnt)
@@ -38,7 +41,12 @@ def collate_crf_instr(collected_instr: List[Instr], device: torch.device = torch
         cnt += dst
         batch_dst.append(cnt - 1)
 
-    src = pack_sequence(batch_src, enforce_sorted=False)
+    if sorted_indices is not None:
+        sorted_indices = sorted_indices.detach().cpu().tolist()
+        batch_src = [batch_src[index] for index in sorted_indices]
+        src = pack_sequence(batch_src, enforce_sorted=True)
+    else:
+        src = pack_sequence(batch_src, enforce_sorted=False)
     instr = [
         torch.cat(instr, dim=0)
         for instr in reversed(list(zip_longest(
@@ -70,10 +78,14 @@ def stack_instr(batch_ptr: Tensor, instr: BatchedInstr, n: int) -> Tuple[Tensor,
 
 
 def build_crf_batched_instr(lengths: Union[List[int], Tensor],
+                            sorted_indices: Tensor = None,
                             device: torch.device = torch.device('cpu')) -> BatchedInstr:
     if torch.is_tensor(lengths):
         lengths = lengths.detach().cpu().tolist()
 
+    collected_instr = [build_crf_instr(length=length) for length in lengths]
     return collate_crf_instr(
-        collected_instr=[build_crf_instr(length=length) for length in lengths], device=device,
+        collected_instr=collected_instr,
+        sorted_indices=sorted_indices,
+        device=device,
     )
