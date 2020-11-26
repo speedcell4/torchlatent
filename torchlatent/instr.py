@@ -3,7 +3,7 @@ from typing import Tuple, List, Optional, Union
 
 import torch
 from torch import Tensor
-from torch.nn.utils.rnn import pack_sequence
+from torch.nn.utils.rnn import pack_sequence, PackedSequence
 
 Instr = Tuple[Tensor, int, List[Tensor]]
 BatchedInstr = Tuple[Tensor, Optional[Tensor], Tensor, List[int], int]
@@ -62,11 +62,17 @@ def collate_crf_instr(
     return src.data.to(device=device), instr, batch_dst, batch_sizes, cnt
 
 
-def stack_instr(batch_ptr: Tensor, instr: BatchedInstr, n: int) -> Tuple[Tensor, BatchedInstr]:
+def stack_instr(batch_ptr: PackedSequence,
+                instr: BatchedInstr, n: int) -> Tuple[PackedSequence, BatchedInstr]:
     src, instr, dst, batch_sizes, num_steps = instr
     indices = torch.arange(n, dtype=src.dtype, device=src.device)
 
-    batch_ptr = (batch_ptr[:, None] * n + indices[None, :]).view(-1)
+    batch_ptr = PackedSequence(
+        data=(batch_ptr.data[:, None] * n + indices[None, :]).view(-1),
+        batch_sizes=batch_ptr.batch_sizes,
+        sorted_indices=batch_ptr.sorted_indices,
+        unsorted_indices=batch_ptr.unsorted_indices,
+    )
 
     src = (src[:, None] * n + indices[None, :]).view(-1)
     dst = (dst[:, None] * n + indices[None, :]).view(-1)

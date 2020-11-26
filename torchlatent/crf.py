@@ -128,14 +128,19 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
                   tags: Optional[PackedSequence], lengths: Optional[Tensor],
                   batch_ptr: Optional[PackedSequence], instr: Optional[BatchedInstr]):
         if batch_ptr is None:
-            batch_ptr = batch_indices(pack=emissions)
+            batch_ptr = PackedSequence(
+                data=batch_indices(pack=emissions),
+                batch_sizes=emissions.batch_sizes,
+                sorted_indices=emissions.sorted_indices,
+                unsorted_indices=emissions.unsorted_indices,
+            )
 
         if instr is None:
             if lengths is None:
                 lengths = packed_sequence_to_lengths(pack=emissions, unsort=True)
             instr = build_crf_batched_instr(
-                lengths=lengths, sorted_indices=emissions.sorted_indices,
-                device=emissions.data.device,
+                lengths=lengths, device=emissions.data.device,
+                sorted_indices=emissions.sorted_indices,
             )
 
         return emissions, tags, batch_ptr, instr

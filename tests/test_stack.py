@@ -8,6 +8,7 @@ from torchrua import stack_packed_sequences
 
 from tests.test_crf import assert_equal
 from torchlatent import CrfDecoder
+from torchlatent.instr import stack_instr
 
 
 def gen_lengths(batch_size: int, total_length: int) -> List[int]:
@@ -57,5 +58,50 @@ def test_stacked_packed_sequences(batch_size, total_length, num_tags, num_packs)
     ]
     loss1 = rearrange(torch.stack(losses, dim=1), 'b n ...-> (b n) ...')
     loss2 = decoder.fit(stacked_emissions, stacked_tags)
+
+    assert_equal(loss1, loss2)
+
+
+@given(
+    batch_size=st.integers(1, 10),
+    total_length=st.integers(1, 10),
+    num_tags=st.integers(1, 10),
+    num_packs=st.integers(1, 10),
+)
+def test_stack_instr(
+        batch_size: int, total_length: int, num_tags: int, num_packs: int):
+    lengths = gen_lengths(batch_size, total_length)
+
+    emissions = [
+        gen_emissions(lengths, num_tags)
+        for _ in range(num_packs)
+    ]
+    tags = [
+        gen_tags(lengths, num_tags)
+        for _ in range(num_packs)
+    ]
+
+    stacked_emissions = stack_packed_sequences(emissions)
+    stacked_tags = stack_packed_sequences(tags)
+
+    decoder = CrfDecoder(num_tags)
+
+    _, _, batch_ptr, instr = decoder._validate(
+        emissions=emissions[0], tags=tags[0],
+        lengths=None, batch_ptr=None, instr=None,
+    )
+    stacked_batch_ptr, stacked_instr = stack_instr(
+        batch_ptr=batch_ptr, instr=instr, n=num_packs,
+    )
+
+    losses = [
+        decoder.fit(e, t, batch_ptr=batch_ptr, instr=instr)
+        for e, t in zip(emissions, tags)
+    ]
+    loss1 = rearrange(torch.stack(losses, dim=1), 'b n ...-> (b n) ...')
+    loss2 = decoder.fit(
+        stacked_emissions, stacked_tags,
+        batch_ptr=stacked_batch_ptr, instr=stacked_instr,
+    )
 
     assert_equal(loss1, loss2)
