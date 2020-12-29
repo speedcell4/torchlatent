@@ -8,8 +8,15 @@ from torchlatent.semiring.abc import build_unit_fn, build_bmv_fn, build_bvm_fn, 
 logger = getLogger(__name__)
 
 
+def logsumexp(x: Tensor, dim: int) -> Tensor:
+    with torch.no_grad():
+        m, _ = torch.max(x, dim=dim, keepdim=True)
+    z = (x - m).exp().sum(dim=dim, keepdim=True).log() + m
+    return z.squeeze(dim=dim)
+
+
 def add(lhs: Tensor, rhs: Tensor) -> Tensor:
-    return torch.logsumexp(torch.stack([lhs, rhs], dim=-1), dim=-1)
+    return logsumexp(torch.stack([lhs, rhs], dim=-1), dim=-1)
 
 
 def mul(lhs: Tensor, rhs: Tensor) -> Tensor:
@@ -17,7 +24,7 @@ def mul(lhs: Tensor, rhs: Tensor) -> Tensor:
 
 
 def sum(x: Tensor, dim: int) -> Tensor:
-    return torch.logsumexp(x, dim=dim)
+    return logsumexp(x, dim=dim)
 
 
 def prod(x: Tensor, dim: int) -> Tensor:
