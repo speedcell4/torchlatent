@@ -9,6 +9,7 @@ from torchrua import stack_packed_sequences
 from tests.test_crf import assert_equal
 from torchlatent import CrfDecoder
 from torchlatent.instr import stack_instr
+from torchlatent.stacked_crf import StackedCrfDecoder
 
 
 def gen_lengths(batch_size: int, total_length: int) -> List[int]:
@@ -105,3 +106,60 @@ def test_stack_instr(
     )
 
     assert_equal(loss1, loss2)
+
+
+def test_stacked_crf_decoder():
+    layer1 = CrfDecoder(5)
+    layer2 = CrfDecoder(5)
+    layer3 = CrfDecoder(5)
+    layer = StackedCrfDecoder(layer1, layer2, layer3)
+
+    emissions1 = pack_sequence([
+        torch.randn((5, 5), requires_grad=True),
+        torch.randn((2, 5), requires_grad=True),
+        torch.randn((3, 5), requires_grad=True),
+    ], enforce_sorted=False)
+    emissions2 = pack_sequence([
+        torch.randn((5, 5), requires_grad=True),
+        torch.randn((2, 5), requires_grad=True),
+        torch.randn((3, 5), requires_grad=True),
+    ], enforce_sorted=False)
+    emissions3 = pack_sequence([
+        torch.randn((5, 5), requires_grad=True),
+        torch.randn((2, 5), requires_grad=True),
+        torch.randn((3, 5), requires_grad=True),
+    ], enforce_sorted=False)
+    emissions = stack_packed_sequences([emissions1, emissions2, emissions3])
+
+    tags1 = pack_sequence([
+        torch.randint(5, (5,), dtype=torch.long),
+        torch.randint(5, (2,), dtype=torch.long),
+        torch.randint(5, (3,), dtype=torch.long),
+    ], enforce_sorted=False)
+    tags2 = pack_sequence([
+        torch.randint(5, (5,), dtype=torch.long),
+        torch.randint(5, (2,), dtype=torch.long),
+        torch.randint(5, (3,), dtype=torch.long),
+    ], enforce_sorted=False)
+    tags3 = pack_sequence([
+        torch.randint(5, (5,), dtype=torch.long),
+        torch.randint(5, (2,), dtype=torch.long),
+        torch.randint(5, (3,), dtype=torch.long),
+    ], enforce_sorted=False)
+    tags = stack_packed_sequences([tags1, tags2, tags3])
+
+    loss_lhs = layer.fit(emissions=emissions, tags=tags)
+
+    loss1 = layer1.fit(emissions=emissions1, tags=tags1)
+    loss2 = layer2.fit(emissions=emissions2, tags=tags2)
+    loss3 = layer3.fit(emissions=emissions3, tags=tags3)
+    loss_rhs = torch.stack([loss1, loss2, loss3], dim=1).view(-1)
+    assert_equal(loss_lhs, loss_rhs)
+
+    prediction_lhs = layer.decode(emissions=emissions)
+
+    prediction1 = layer1.decode(emissions=emissions1)
+    prediction2 = layer2.decode(emissions=emissions2)
+    prediction3 = layer3.decode(emissions=emissions3)
+    prediction_rhs = torch.stack([prediction1.data, prediction2.data, prediction3.data], dim=1).view(-1)
+    assert_equal(prediction_lhs.data, prediction_rhs)
