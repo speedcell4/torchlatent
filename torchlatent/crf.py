@@ -23,19 +23,19 @@ def compute_log_scores(
 
     if pack_ptr is None:
         transitions_indices = shifted_tags.data, tags.data,
-        start_transitions_indices = select_head(tags, unsort=False),
-        end_transitions_indices = select_last(tags, unsort=True),
+        start_indices = select_head(tags, unsort=False),
+        end_indices = select_last(tags, unsort=True),
     else:
         transitions_indices = pack_ptr, shifted_tags.data, tags.data,
-        start_transitions_indices = pack_ptr[:num_heads], select_head(tags, unsort=False),
-        end_transitions_indices = pack_ptr[:num_heads], select_last(tags, unsort=True),
+        start_indices = pack_ptr[:num_heads], select_head(tags, unsort=False),
+        end_indices = pack_ptr[:num_heads], select_last(tags, unsort=True),
 
     emissions = emissions.data.gather(dim=-1, index=tags.data[:, None])[:, 0]  # [p]
 
     transitions = transitions[transitions_indices]  # [p]
-    transitions[:num_heads] = start_transitions[start_transitions_indices]
+    transitions[:num_heads] = start_transitions[start_indices]
 
-    scores = end_transitions[end_transitions_indices]  # [p]
+    scores = end_transitions[end_indices]  # [p]
     return scores.scatter_add(dim=0, index=batch_ptr.data, src=log.mul(emissions, transitions))
 
 
