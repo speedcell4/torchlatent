@@ -19,14 +19,23 @@ def compute_stacked_log_scores(
         emissions: PackedSequence, tags: PackedSequence, batch_ptr: PackedSequence, pack_ptr: Optional[Tensor],
         transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
     num_heads = emissions.batch_sizes[0].item()
-
     shifted_tags = roll_packed_sequence(tags, offset=1)
+
+    if pack_ptr is None:
+        transitions_indices = shifted_tags.data, tags.data,
+        start_transitions_indices = select_head(tags, unsort=False),
+        end_transitions_indices = select_last(tags, unsort=True),
+    else:
+        transitions_indices = pack_ptr, shifted_tags.data, tags.data,
+        start_transitions_indices = pack_ptr[:num_heads], select_head(tags, unsort=False),
+        end_transitions_indices = pack_ptr[:num_heads], select_last(tags, unsort=True),
+
     emissions = emissions.data.gather(dim=-1, index=tags.data[:, None])[:, 0]  # [p]
 
-    transitions = transitions[pack_ptr, shifted_tags.data, tags.data]  # [p]
-    transitions[:num_heads] = start_transitions[pack_ptr[:num_heads], select_head(tags, unsort=False)]
+    transitions = transitions[transitions_indices]  # [p]
+    transitions[:num_heads] = start_transitions[start_transitions_indices]
 
-    scores = end_transitions[pack_ptr[:num_heads], select_last(tags, unsort=True)]  # [b]
+    scores = end_transitions[end_transitions_indices]  # [p]
     return scores.scatter_add(dim=0, index=batch_ptr.data, src=log.mul(emissions, transitions))
 
 
