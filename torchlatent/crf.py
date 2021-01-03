@@ -278,15 +278,18 @@ class CrfDecoder(CrfDecoderABC):
 
 
 class StackedCrfDecoder(CrfDecoderABC):
-    def __init__(self, *decoders: CrfDecoder) -> None:
+    def __init__(self, *decoders: CrfDecoderABC) -> None:
         super(StackedCrfDecoder, self).__init__(num_packs=len(decoders))
 
+        self.num_tags = decoders[0].num_tags
         self.decoders = nn.ModuleList(decoders)
 
-        self.num_tags = decoders[0].num_tags
+        for decoder in decoders:
+            assert self.num_tags == decoder.num_tags
 
     def reset_parameters(self, bound: float = 0.01) -> None:
-        pass
+        for decoder in self.decoders:
+            decoder.reset_parameters()
 
     def extra_repr(self) -> str:
         return ', '.join([
@@ -295,10 +298,10 @@ class StackedCrfDecoder(CrfDecoderABC):
         ])
 
     def _obtain_parameters(self, *args, **kwargs):
-        transitions, start_transitions, end_transitions, unit = zip(*[
+        transitions, start_transitions, end_transitions, (unit, *_) = zip(*[
             decoder._obtain_parameters(*args, **kwargs) for decoder in self.decoders
         ])
         transitions = torch.stack(transitions, dim=0)
         start_transitions = torch.stack(start_transitions, dim=0)
         end_transitions = torch.stack(end_transitions, dim=0)
-        return transitions, start_transitions, end_transitions, unit[0]
+        return transitions, start_transitions, end_transitions, unit
