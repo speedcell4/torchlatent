@@ -291,6 +291,9 @@ class StackedCrfDecoder(CrfDecoderABC):
         for decoder in self.decoders:
             decoder.reset_parameters()
 
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({self.extra_repr()})'
+
     def extra_repr(self) -> str:
         return ', '.join([
             f'num_tags={self.num_tags}',
