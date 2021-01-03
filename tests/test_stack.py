@@ -7,9 +7,8 @@ from torch.nn.utils.rnn import pack_sequence
 from torchrua import stack_packed_sequences
 
 from tests.test_crf import assert_equal
-from torchlatent import CrfDecoder
+from torchlatent.crf import CrfDecoder, StackedCrfDecoder
 from torchlatent.instr import stack_instr
-from torchlatent.stacked_crf import StackedCrfDecoder
 
 
 def gen_lengths(batch_size: int, total_length: int) -> List[int]:
@@ -87,7 +86,7 @@ def test_stack_instr(
 
     decoder = CrfDecoder(num_tags)
 
-    _, _, batch_ptr, instr = decoder._validate(
+    _, _, _, batch_ptr, instr = decoder._validate(
         emissions=emissions[0], tags=tags[0],
         lengths=None, batch_ptr=None, instr=None,
     )
