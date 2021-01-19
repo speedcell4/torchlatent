@@ -1,23 +1,18 @@
 import torch
 from hypothesis import given, strategies as st
 from hypothesis import settings
-from torch import Tensor
 from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 from torchcrf import CRF
 from torchrua import lengths_to_mask
 
+from tests.utils import assert_equal
 from torchlatent.crf import CrfDecoder
 
 if torch.cuda.is_available():
     device = torch.device('cuda:0')
 else:
     device = torch.device('cpu')
-
-
-def assert_equal(x: Tensor, y: Tensor) -> None:
-    assert x.size() == y.size(), f'{x.size()} != {y.size()}'
-    assert torch.allclose(x, y, rtol=1e-5, atol=1e-5), f'{x.view(-1)} != {y.view(-1)}'
 
 
 @settings(deadline=None)

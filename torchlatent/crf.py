@@ -75,12 +75,10 @@ def compute_partitions(semiring):
             ), instr=instr,
         )
 
-        return semiring.unconvert(
-            semiring.bmm(
-                semiring.bmm(start[..., None, :], transitions),
-                end[..., :, None],
-            )[..., 0, 0]
-        )
+        return semiring.bmm(
+            semiring.bmm(start[..., None, :], transitions),
+            end[..., :, None],
+        )[..., 0, 0]
 
     return _compute_partitions_fn
 
@@ -137,7 +135,7 @@ class CrfDistribution(distributions.Distribution):
         return grad
 
     @lazy_property
-    def entropy(self) -> Tensor:
+    def _entropy(self) -> Tensor:
         return compute_ent_partitions(
             emissions=self.emissions, instr=self.instr,
             unit=ent.fill_unit(self.transitions),
@@ -146,6 +144,10 @@ class CrfDistribution(distributions.Distribution):
             start_transitions=self.start_transitions,
             end_transitions=self.end_transitions,
         )
+
+    @lazy_property
+    def entropy(self) -> Tensor:
+        return ent.unconvert(self._entropy)
 
     @lazy_property
     def argmax(self) -> PackedSequence:
@@ -357,4 +359,3 @@ if __name__ == '__main__':
 
     print((prob * prob.log()).sum().neg())
     print(a.sum().log())
-

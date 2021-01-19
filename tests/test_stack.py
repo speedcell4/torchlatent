@@ -6,7 +6,7 @@ from hypothesis import given, strategies as st
 from torch.nn.utils.rnn import pack_sequence
 from torchrua import stack_packed_sequences
 
-from tests.test_crf import assert_equal
+from tests.utils import assert_equal
 from torchlatent.crf import CrfDecoder, StackedCrfDecoder
 from torchlatent.instr import stack_instr
 
