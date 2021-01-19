@@ -6,13 +6,13 @@ from torch import Tensor
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
 from torch.nn import init
-from torch.nn.utils.rnn import PackedSequence
+from torch.nn.utils.rnn import PackedSequence, pack_sequence
 from torchrua import batch_indices, packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
 from torchrua.indexing import select_head, select_last
 
 from torchlatent.instr import BatchedInstr, build_crf_batched_instr
-from torchlatent.semiring import log, max
+from torchlatent.semiring import log, max, ent
 
 
 def compute_log_scores(
@@ -54,11 +54,17 @@ def compute_partitions(semiring):
             start_indices = pack_ptr[:num_heads],
             end_indices = pack_ptr[:num_heads],
 
-        start = semiring.mul(start_transitions[start_indices], emissions.data[emissions.unsorted_indices])  # [p, t]
-        end = end_transitions[end_indices]  # [p, t]
+        start = semiring.convert(semiring.mul(
+            start_transitions[start_indices],
+            emissions.data[emissions.unsorted_indices],
+        ))  # [p, c, t]
+        end = semiring.convert(end_transitions[end_indices])  # [p, c, t]
 
-        transitions = semiring.mul(transitions[transitions_indices], emissions.data[:, None, :])  # [p, t, t]
-        transitions[:num_heads] = unit[None, :, :]
+        transitions = semiring.convert(semiring.mul(
+            transitions[transitions_indices],
+            emissions.data[:, None, :],
+        ))  # [p, c, t, t]
+        transitions[:num_heads] = unit[None, ..., :, :]
 
         transitions = semiring.tree_reduce(
             pack=PackedSequence(
@@ -68,19 +74,26 @@ def compute_partitions(semiring):
                 unsorted_indices=emissions.unsorted_indices,
             ), instr=instr,
         )
-        return semiring.bmm(semiring.bmm(start[:, None, :], transitions), end[:, :, None])[:, 0, 0]
+
+        return semiring.unconvert(
+            semiring.bmm(
+                semiring.bmm(start[..., None, :], transitions),
+                end[..., :, None],
+            )[..., 0, 0]
+        )
 
     return _compute_partitions_fn
 
 
 compute_log_partitions = compute_partitions(log)
 compute_max_partitions = compute_partitions(max)
+compute_ent_partitions = compute_partitions(ent)
 
 
 class CrfDistribution(distributions.Distribution):
     def __init__(self, emissions: PackedSequence, batch_ptr: PackedSequence, instr: BatchedInstr,
                  pack_ptr: Optional[Tensor],
-                 transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor, unit: Tensor) -> None:
+                 transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> None:
         super(CrfDistribution, self).__init__()
         self.emissions = emissions
         self.batch_ptr = batch_ptr
@@ -90,7 +103,6 @@ class CrfDistribution(distributions.Distribution):
         self.transitions = transitions
         self.start_transitions = start_transitions
         self.end_transitions = end_transitions
-        self.unit = unit
 
     def log_prob(self, tags: PackedSequence) -> Tensor:
         return self.log_scores(tags=tags) - self.log_partitions
@@ -107,7 +119,8 @@ class CrfDistribution(distributions.Distribution):
     @lazy_property
     def log_partitions(self) -> Tensor:
         return compute_log_partitions(
-            emissions=self.emissions, instr=self.instr, unit=self.unit,
+            emissions=self.emissions, instr=self.instr,
+            unit=log.fill_unit(self.transitions),
             pack_ptr=self.pack_ptr,
             transitions=self.transitions,
             start_transitions=self.start_transitions,
@@ -124,9 +137,21 @@ class CrfDistribution(distributions.Distribution):
         return grad
 
     @lazy_property
+    def entropy(self) -> Tensor:
+        return compute_ent_partitions(
+            emissions=self.emissions, instr=self.instr,
+            unit=ent.fill_unit(self.transitions),
+            pack_ptr=self.pack_ptr,
+            transitions=self.transitions,
+            start_transitions=self.start_transitions,
+            end_transitions=self.end_transitions,
+        )
+
+    @lazy_property
     def argmax(self) -> PackedSequence:
         partitions = compute_max_partitions(
-            emissions=self.emissions, instr=self.instr, unit=self.unit,
+            emissions=self.emissions, instr=self.instr,
+            unit=max.fill_unit(self.transitions),
             pack_ptr=self.pack_ptr,
             transitions=self.transitions,
             start_transitions=self.start_transitions,
@@ -184,7 +209,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         return emissions, tags, pack_ptr, batch_ptr, instr
 
     def _obtain_parameters(self, *args, **kwargs):
-        return self.transitions, self.start_transitions, self.end_transitions, self.unit
+        return self.transitions, self.start_transitions, self.end_transitions
 
     def forward(self, emissions: PackedSequence,
                 tags: Optional[PackedSequence] = None, lengths: Optional[Tensor] = None,
@@ -193,13 +218,13 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
             emissions=emissions, tags=tags, lengths=lengths,
             batch_ptr=batch_ptr, instr=instr,
         )
-        transitions, start_transitions, end_transitions, unit = self._obtain_parameters(
+        transitions, start_transitions, end_transitions = self._obtain_parameters(
             emissions=emissions, tags=tags,
             batch_ptr=batch_ptr, instr=instr,
         )
 
         dist = CrfDistribution(
-            emissions=emissions, batch_ptr=batch_ptr, instr=instr, unit=unit,
+            emissions=emissions, batch_ptr=batch_ptr, instr=instr,
             pack_ptr=pack_ptr,
             transitions=transitions,
             start_transitions=start_transitions,
@@ -261,8 +286,6 @@ class CrfDecoder(CrfDecoderABC):
         self.start_transitions = nn.Parameter(torch.empty((self.num_tags,)), requires_grad=True)
         self.end_transitions = nn.Parameter(torch.empty((self.num_tags,)), requires_grad=True)
 
-        self.register_buffer('unit', log.fill_unit(self.transitions))
-
         self.reset_parameters()
 
     @torch.no_grad()
@@ -301,10 +324,37 @@ class StackedCrfDecoder(CrfDecoderABC):
         ])
 
     def _obtain_parameters(self, *args, **kwargs):
-        transitions, start_transitions, end_transitions, (unit, *_) = zip(*[
+        transitions, start_transitions, end_transitions = zip(*[
             decoder._obtain_parameters(*args, **kwargs) for decoder in self.decoders
         ])
         transitions = torch.stack(transitions, dim=0)
         start_transitions = torch.stack(start_transitions, dim=0)
         end_transitions = torch.stack(end_transitions, dim=0)
-        return transitions, start_transitions, end_transitions, unit
+        return transitions, start_transitions, end_transitions
+
+
+if __name__ == '__main__':
+    pack = pack_sequence([
+        torch.tensor([
+            [1, 3],
+            [2, 4.]
+        ], requires_grad=True).log(),
+    ], enforce_sorted=False)
+
+    decoder = CrfDecoder(num_tags=2)
+    init.zeros_(decoder.transitions)
+    init.zeros_(decoder.start_transitions)
+    init.zeros_(decoder.end_transitions)
+
+    dist, _ = decoder.forward(emissions=pack)
+    print(dist.entropy)
+    print(dist.log_partitions)
+
+    import torch
+
+    a = torch.tensor([2, 4, 6, 12.])
+    prob = a / a.sum()
+
+    print((prob * prob.log()).sum().neg())
+    print(a.sum().log())
+
