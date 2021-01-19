@@ -19,14 +19,14 @@ def mul(lhs: Tensor, rhs: Tensor) -> Tensor:
 
 def sum(x: Tensor, dim: int) -> Tensor:
     log_z = logsumexp(x[:, 0], dim=dim, keepdim=True)
-    log_prob = x[:, 0] - log_z
+    log_prob = x[:, 0] - torch.where(torch.isinf(log_z), torch.zeros_like(log_z), log_z)
     prob = log_prob.exp()
 
     h = x[:, 1] - log_prob
-    mask = torch.isinf(h) & (prob == 0)
-    h = torch.where(mask, torch.zeros_like(h), h)
 
-    h = torch.sum(h * prob, dim=dim)
+    mask = torch.isinf(h) & (prob == 0)
+    h = torch.where(mask, torch.zeros_like(h), h) * prob
+    h = torch.sum(h, dim=dim)
     return torch.stack([log_z.squeeze(dim=dim), h], dim=1)
 
 

@@ -339,8 +339,8 @@ if __name__ == '__main__':
     pack = pack_sequence([
         torch.tensor([
             [1, 3],
-            [2, 4.]
-        ], requires_grad=True).log(),
+            [2, 0],
+        ], dtype=torch.float32, requires_grad=True).log(),
     ], enforce_sorted=False)
 
     decoder = CrfDecoder(num_tags=2)
@@ -349,13 +349,8 @@ if __name__ == '__main__':
     init.zeros_(decoder.end_transitions)
 
     dist, _ = decoder.forward(emissions=pack)
-    print(dist.entropy)
     print(dist.log_partitions)
+    print(dist.entropy)
 
-    import torch
-
-    a = torch.tensor([2, 4, 6, 12.])
-    prob = a / a.sum()
-
-    print((prob * prob.log()).sum().neg())
-    print(a.sum().log())
+    x = torch.tensor([2. / 8, 6. / 8])
+    print((x * x.log()).sum().neg())

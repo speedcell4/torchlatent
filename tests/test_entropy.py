@@ -20,6 +20,10 @@ def test_entropy(batch_size, total_length, num_tags):
         for length in lengths.detach().cpu().tolist()
     ], enforce_sorted=False)
 
+    mask = torch.randint(0, 2, emissions.data.size(), dtype=torch.bool, device=device)
+    data = torch.masked_fill(emissions.data, mask, -float('inf'))
+    emissions = emissions._replace(data=data)
+
     dist, _ = decoder.forward(emissions=emissions)
     assert_equal(dist.log_partitions, dist._entropy[:, 0])
 
