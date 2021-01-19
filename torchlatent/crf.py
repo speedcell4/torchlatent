@@ -16,28 +16,49 @@ from torchlatent.semiring import log, max
 
 
 def compute_log_scores(
-        emissions: PackedSequence, tags: PackedSequence, batch_ptr: PackedSequence,
+        emissions: PackedSequence, tags: PackedSequence, batch_ptr: PackedSequence, pack_ptr: Optional[Tensor],
         transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
+    num_heads = emissions.batch_sizes[0].item()
     shifted_tags = roll_packed_sequence(tags, offset=1)
+
+    if pack_ptr is None:
+        transitions_indices = shifted_tags.data, tags.data,
+        start_indices = select_head(tags, unsort=False),
+        end_indices = select_last(tags, unsort=True),
+    else:
+        transitions_indices = pack_ptr, shifted_tags.data, tags.data,
+        start_indices = pack_ptr[:num_heads], select_head(tags, unsort=False),
+        end_indices = pack_ptr[:num_heads], select_last(tags, unsort=True),
 
     emissions = emissions.data.gather(dim=-1, index=tags.data[:, None])[:, 0]  # [p]
 
-    transitions = transitions[shifted_tags.data, tags.data]  # [p]
-    transitions[:tags.batch_sizes[0].item()] = start_transitions[select_head(tags, unsort=False)]
+    transitions = transitions[transitions_indices]  # [p]
+    transitions[:num_heads] = start_transitions[start_indices]
 
-    scores = end_transitions[select_last(tags, unsort=True)]  # [b]
+    scores = end_transitions[end_indices]  # [p]
     return scores.scatter_add(dim=0, index=batch_ptr.data, src=log.mul(emissions, transitions))
 
 
 def compute_partitions(semiring):
     def _compute_partitions_fn(
-            emissions: PackedSequence, instr: BatchedInstr,
+            emissions: PackedSequence, instr: BatchedInstr, pack_ptr: Optional[Tensor],
             transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor, unit: Tensor) -> Tensor:
-        start = semiring.mul(start_transitions[None, :], emissions.data[emissions.unsorted_indices, :])  # [p, t]
-        end = end_transitions  # [t]
+        num_heads = emissions.batch_sizes[0].item()
 
-        transitions = semiring.mul(transitions[None, :, :], emissions.data[:, None, :])  # [p, t, t]
-        transitions[:emissions.batch_sizes[0]] = unit[None, :, :]
+        if pack_ptr is None:
+            transitions_indices = ...,
+            start_indices = None,
+            end_indices = None,
+        else:
+            transitions_indices = pack_ptr,
+            start_indices = pack_ptr[:num_heads],
+            end_indices = pack_ptr[:num_heads],
+
+        start = semiring.mul(start_transitions[start_indices], emissions.data[emissions.unsorted_indices])  # [p, t]
+        end = end_transitions[end_indices]  # [p, t]
+
+        transitions = semiring.mul(transitions[transitions_indices], emissions.data[:, None, :])  # [p, t, t]
+        transitions[:num_heads] = unit[None, :, :]
 
         transitions = semiring.reduce(
             pack=PackedSequence(
@@ -47,7 +68,7 @@ def compute_partitions(semiring):
                 unsorted_indices=emissions.unsorted_indices,
             ), instr=instr,
         )
-        return semiring.bmv(semiring.bvm(start, transitions), end)
+        return semiring.bmm(semiring.bmm(start[:, None, :], transitions), end[:, :, None])[:, 0, 0]
 
     return _compute_partitions_fn
 
@@ -58,12 +79,14 @@ compute_max_partitions = compute_partitions(max)
 
 class CrfDistribution(distributions.Distribution):
     def __init__(self, emissions: PackedSequence, batch_ptr: PackedSequence, instr: BatchedInstr,
+                 pack_ptr: Optional[Tensor],
                  transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor, unit: Tensor) -> None:
         super(CrfDistribution, self).__init__()
         self.emissions = emissions
         self.batch_ptr = batch_ptr
         self.instr = instr
 
+        self.pack_ptr = pack_ptr
         self.transitions = transitions
         self.start_transitions = start_transitions
         self.end_transitions = end_transitions
@@ -75,6 +98,7 @@ class CrfDistribution(distributions.Distribution):
     def log_scores(self, tags: PackedSequence) -> Tensor:
         return compute_log_scores(
             emissions=self.emissions, tags=tags, batch_ptr=self.batch_ptr,
+            pack_ptr=self.pack_ptr,
             transitions=self.transitions,
             start_transitions=self.start_transitions,
             end_transitions=self.end_transitions,
@@ -84,6 +108,7 @@ class CrfDistribution(distributions.Distribution):
     def log_partitions(self) -> Tensor:
         return compute_log_partitions(
             emissions=self.emissions, instr=self.instr, unit=self.unit,
+            pack_ptr=self.pack_ptr,
             transitions=self.transitions,
             start_transitions=self.start_transitions,
             end_transitions=self.end_transitions,
@@ -102,6 +127,7 @@ class CrfDistribution(distributions.Distribution):
     def argmax(self) -> PackedSequence:
         partitions = compute_max_partitions(
             emissions=self.emissions, instr=self.instr, unit=self.unit,
+            pack_ptr=self.pack_ptr,
             transitions=self.transitions,
             start_transitions=self.start_transitions,
             end_transitions=self.end_transitions,
@@ -120,11 +146,19 @@ class CrfDistribution(distributions.Distribution):
 
 
 class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
+    def __init__(self, num_packs: int = None):
+        super(CrfDecoderABC, self).__init__()
+
+        self.num_packs = num_packs
+        if num_packs is None:
+            self.pack_ptr = None
+        else:
+            self.register_buffer('pack_ptr', torch.arange(num_packs, dtype=torch.long))
+
     def reset_parameters(self, bound: float = 0.01) -> None:
         raise NotImplementedError
 
-    @staticmethod
-    def _validate(emissions: PackedSequence,
+    def _validate(self, emissions: PackedSequence,
                   tags: Optional[PackedSequence], lengths: Optional[Tensor],
                   batch_ptr: Optional[PackedSequence], instr: Optional[BatchedInstr]):
         if batch_ptr is None:
@@ -143,7 +177,11 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
                 sorted_indices=emissions.sorted_indices,
             )
 
-        return emissions, tags, batch_ptr, instr
+        if self.pack_ptr is None:
+            pack_ptr = None
+        else:
+            pack_ptr = self.pack_ptr.repeat((emissions.data.size(0) // self.pack_ptr.size(0),))
+        return emissions, tags, pack_ptr, batch_ptr, instr
 
     def _obtain_parameters(self, *args, **kwargs):
         return self.transitions, self.start_transitions, self.end_transitions, self.unit
@@ -151,7 +189,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
     def forward(self, emissions: PackedSequence,
                 tags: Optional[PackedSequence] = None, lengths: Optional[Tensor] = None,
                 batch_ptr: Optional[PackedSequence] = None, instr: Optional[BatchedInstr] = None):
-        emissions, tags, batch_ptr, instr = self._validate(
+        emissions, tags, pack_ptr, batch_ptr, instr = self._validate(
             emissions=emissions, tags=tags, lengths=lengths,
             batch_ptr=batch_ptr, instr=instr,
         )
@@ -162,6 +200,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
 
         dist = CrfDistribution(
             emissions=emissions, batch_ptr=batch_ptr, instr=instr, unit=unit,
+            pack_ptr=pack_ptr,
             transitions=transitions,
             start_transitions=start_transitions,
             end_transitions=end_transitions,
@@ -214,7 +253,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
 
 class CrfDecoder(CrfDecoderABC):
     def __init__(self, num_tags: int) -> None:
-        super(CrfDecoder, self).__init__()
+        super(CrfDecoder, self).__init__(num_packs=None)
 
         self.num_tags = num_tags
 
@@ -236,3 +275,36 @@ class CrfDecoder(CrfDecoderABC):
         return ', '.join([
             f'num_tags={self.num_tags}',
         ])
+
+
+class StackedCrfDecoder(CrfDecoderABC):
+    def __init__(self, *decoders: CrfDecoderABC) -> None:
+        super(StackedCrfDecoder, self).__init__(num_packs=len(decoders))
+
+        self.num_tags = decoders[0].num_tags
+        self.decoders = nn.ModuleList(decoders)
+
+        for decoder in decoders:
+            assert self.num_tags == decoder.num_tags
+
+    def reset_parameters(self, bound: float = 0.01) -> None:
+        for decoder in self.decoders:
+            decoder.reset_parameters()
+
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({self.extra_repr()})'
+
+    def extra_repr(self) -> str:
+        return ', '.join([
+            f'num_tags={self.num_tags}',
+            f'num_packs={self.num_packs}',
+        ])
+
+    def _obtain_parameters(self, *args, **kwargs):
+        transitions, start_transitions, end_transitions, (unit, *_) = zip(*[
+            decoder._obtain_parameters(*args, **kwargs) for decoder in self.decoders
+        ])
+        transitions = torch.stack(transitions, dim=0)
+        start_transitions = torch.stack(start_transitions, dim=0)
+        end_transitions = torch.stack(end_transitions, dim=0)
+        return transitions, start_transitions, end_transitions, unit

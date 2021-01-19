@@ -1,5 +1,5 @@
-from torchlatent.crf import CrfDistribution, CrfDecoderABC, CrfDecoder
+from torchlatent.crf import CrfDistribution, CrfDecoderABC, CrfDecoder, StackedCrfDecoder
 
 __all__ = [
-    'CrfDistribution', 'CrfDecoderABC', 'CrfDecoder',
+    'CrfDistribution', 'CrfDecoderABC', 'CrfDecoder', 'StackedCrfDecoder',
 ]
