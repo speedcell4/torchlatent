@@ -2,7 +2,7 @@ import torch
 from hypothesis import given, strategies as st
 from torch.nn.utils.rnn import pack_sequence
 
-from tests.utils import assert_equal
+from tests.utils import assert_equal, device
 from torchlatent import CrfDecoder
 
 
@@ -12,11 +12,11 @@ from torchlatent import CrfDecoder
     num_tags=st.integers(1, 10),
 )
 def test_entropy(batch_size, total_length, num_tags):
-    decoder = CrfDecoder(num_tags=num_tags)
+    decoder = CrfDecoder(num_tags=num_tags).to(device=device)
 
-    lengths = torch.randint(0, total_length, (batch_size,)) + 1
+    lengths = torch.randint(0, total_length, (batch_size,), device=device) + 1
     emissions = pack_sequence([
-        torch.randn((length, num_tags), dtype=torch.float32, requires_grad=True)
+        torch.randn((length, num_tags), device=device, dtype=torch.float32, requires_grad=True)
         for length in lengths.detach().cpu().tolist()
     ], enforce_sorted=False)
 

@@ -6,13 +6,8 @@ from torch.nn.utils.rnn import pad_packed_sequence
 from torchcrf import CRF
 from torchrua import lengths_to_mask
 
-from tests.utils import assert_equal
+from tests.utils import assert_equal, device
 from torchlatent.crf import CrfDecoder
-
-if torch.cuda.is_available():
-    device = torch.device('cuda:0')
-else:
-    device = torch.device('cpu')
 
 
 @settings(deadline=None)
@@ -30,7 +25,7 @@ def test_crf_decoder_fit(batch_size, total_length, num_tags, reduction):
     their_decoder.end_transitions.data[:] = our_decoder.end_transitions.data[:]
 
     emissions = torch.randn((batch_size, total_length, num_tags), device=device)
-    lengths = torch.randint(0, total_length, (batch_size,), device=device) + 1
+    lengths = torch.randint(0, total_length, (batch_size,)) + 1
     lengths[torch.randint(0, batch_size, ()).item()] = total_length
 
     our_emissions = pack_padded_sequence(emissions, lengths=lengths, batch_first=True, enforce_sorted=False)
@@ -76,7 +71,7 @@ def test_crf_decoder_decode(batch_size, total_length, num_tags):
     their_decoder.end_transitions.data[:] = our_decoder.end_transitions.data[:]
 
     emissions = torch.randn((batch_size, total_length, num_tags), device=device)
-    lengths = torch.randint(0, total_length, (batch_size,), device=device) + 1
+    lengths = torch.randint(0, total_length, (batch_size,)) + 1
     lengths[torch.randint(0, batch_size, ()).item()] = total_length
 
     our_emissions = pack_padded_sequence(emissions, lengths=lengths, batch_first=True, enforce_sorted=False)
