@@ -7,7 +7,8 @@ from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence, pack_sequence
-from torchrua import batch_indices, packed_sequence_to_lengths
+from torchrua import batch_indices
+from torchrua import packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
 from torchrua.indexing import select_head, select_last
 
@@ -134,20 +135,21 @@ class CrfDistribution(distributions.Distribution):
         )
         return grad
 
-    @lazy_property
-    def _entropy(self) -> Tensor:
-        return compute_ent_partitions(
-            emissions=self.emissions, instr=self.instr,
-            unit=ent.fill_unit(self.transitions),
-            pack_ptr=self.pack_ptr,
-            transitions=self.transitions,
-            start_transitions=self.start_transitions,
-            end_transitions=self.end_transitions,
-        )
+    # @lazy_property
+    # def _entropy(self) -> Tensor:
+    #     return compute_ent_partitions(
+    #         emissions=self.emissions, instr=self.instr,
+    #         unit=ent.fill_unit(self.transitions),
+    #         pack_ptr=self.pack_ptr,
+    #         transitions=self.transitions,
+    #         start_transitions=self.start_transitions,
+    #         end_transitions=self.end_transitions,
+    #     )
 
     @lazy_property
     def entropy(self) -> Tensor:
-        return ent.unconvert(self._entropy)
+        marginals = torch.masked_fill(self.marginals, self.marginals == 0, 1.)
+        return (marginals * marginals.log()).sum().neg()
 
     @lazy_property
     def argmax(self) -> PackedSequence:
