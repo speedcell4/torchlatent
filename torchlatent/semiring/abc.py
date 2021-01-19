@@ -15,20 +15,6 @@ def build_unit_fn(zero: float, one: float, dtype: torch.dtype = torch.float32):
     return build_unit
 
 
-def build_bvm_fn(mul_fn, sum_fn):
-    def bvm_fn(x: Tensor, y: Tensor):
-        return sum_fn(mul_fn(x.unsqueeze(-1), y), -2)
-
-    return bvm_fn
-
-
-def build_bmv_fn(mul_fn, sum_fn):
-    def bmv_fn(x: Tensor, y: Tensor):
-        return sum_fn(mul_fn(x, y.unsqueeze(-2)), -1)
-
-    return bmv_fn
-
-
 def build_bmm_fn(mul_fn, sum_fn):
     def bmm_fn(x: Tensor, y: Tensor):
         return sum_fn(mul_fn(x.unsqueeze(-1), y.unsqueeze(-3)), -2)
