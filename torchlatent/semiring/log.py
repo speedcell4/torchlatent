@@ -1,18 +1,8 @@
 import torch
 from torch import Tensor
 
+from torchlatent.functional import logsumexp
 from torchlatent.semiring.abc import compile_fill_unit, compile_bmm, compile_tree_reduction
-
-
-def logsumexp(x: Tensor, dim: int) -> Tensor:
-    with torch.no_grad():
-        m, _ = torch.max(x, dim=dim, keepdim=True)
-        m = torch.where(torch.isinf(m), torch.zeros_like(m), m)
-    z = (x - m).exp().sum(dim=dim, keepdim=True)
-    mask = z == 0
-    z = torch.where(mask, torch.ones_like(z), z).log()
-    z = torch.where(mask, torch.full_like(z, -float('inf')), z)
-    return (z + m).squeeze(dim=dim)
 
 
 def add(lhs: Tensor, rhs: Tensor) -> Tensor:
