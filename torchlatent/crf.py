@@ -60,7 +60,7 @@ def compute_partitions(semiring):
         transitions = semiring.mul(transitions[transitions_indices], emissions.data[:, None, :])  # [p, t, t]
         transitions[:num_heads] = unit[None, :, :]
 
-        transitions = semiring.reduce(
+        transitions = semiring.tree_reduce(
             pack=PackedSequence(
                 data=transitions,
                 batch_sizes=emissions.batch_sizes,
@@ -261,7 +261,7 @@ class CrfDecoder(CrfDecoderABC):
         self.start_transitions = nn.Parameter(torch.empty((self.num_tags,)), requires_grad=True)
         self.end_transitions = nn.Parameter(torch.empty((self.num_tags,)), requires_grad=True)
 
-        self.register_buffer('unit', log.build_unit(self.transitions))
+        self.register_buffer('unit', log.fill_unit(self.transitions))
 
         self.reset_parameters()
 

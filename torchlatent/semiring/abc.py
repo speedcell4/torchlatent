@@ -5,7 +5,7 @@ from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 
 
-def build_unit_fn(zero: float, one: float, dtype: torch.dtype = torch.float32):
+def compile_fill_unit(zero: float, one: float, dtype: torch.dtype = torch.float32):
     def build_unit(x: Tensor) -> Tensor:
         mask = torch.eye(x.size(-1), device=x.device, dtype=torch.bool)
         ones = torch.full(mask.size(), fill_value=one, device=x.device, dtype=dtype)
@@ -15,14 +15,14 @@ def build_unit_fn(zero: float, one: float, dtype: torch.dtype = torch.float32):
     return build_unit
 
 
-def build_bmm_fn(mul_fn, sum_fn):
+def compile_bmm(mul, sum):
     def bmm_fn(x: Tensor, y: Tensor):
-        return sum_fn(mul_fn(x.unsqueeze(-1), y.unsqueeze(-3)), -2)
+        return sum(mul(x.unsqueeze(-1), y.unsqueeze(-3)), -2)
 
     return bmm_fn
 
 
-def build_reduce_fn(mm_fn):
+def compile_tree_reduction(bmm):
     def reduce_fn(pack: PackedSequence, instr: Tuple[Tensor, Optional[Tensor], Tensor, List[int], int]) -> Tensor:
         src, instr, dst, batch_sizes, num_steps = instr
 
@@ -39,7 +39,7 @@ def build_reduce_fn(mm_fn):
                 lhs = instr[start:end, 0]
                 rhs = instr[start:end, 1]
                 tgt = instr[start:end, 2]
-                data[tgt] = mm_fn(data[lhs], data[rhs])
+                data[tgt] = bmm(data[lhs], data[rhs])
 
         return data[dst]
 
