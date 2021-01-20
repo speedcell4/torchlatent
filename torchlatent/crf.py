@@ -13,7 +13,7 @@ from torchrua import roll_packed_sequence
 from torchrua.indexing import select_head, select_last
 
 from torchlatent.instr import BatchedInstr, build_crf_batched_instr
-from torchlatent.semiring import log, max, ent
+from torchlatent.semiring import log, max
 
 
 def compute_log_scores(
@@ -55,16 +55,16 @@ def compute_partitions(semiring):
             start_indices = pack_ptr[:num_heads],
             end_indices = pack_ptr[:num_heads],
 
-        start = semiring.convert(semiring.mul(
+        start = semiring.mul(
             start_transitions[start_indices],
             emissions.data[emissions.unsorted_indices],
-        ))  # [p, c, t]
-        end = semiring.convert(end_transitions[end_indices])  # [p, c, t]
+        )  # [p, c, t]
+        end = end_transitions[end_indices]  # [p, c, t]
 
-        transitions = semiring.convert(semiring.mul(
+        transitions = semiring.mul(
             transitions[transitions_indices],
             emissions.data[:, None, :],
-        ))  # [p, c, t, t]
+        )  # [p, c, t, t]
         transitions[:num_heads] = unit[None, ..., :, :]
 
         transitions = semiring.tree_reduce(
@@ -86,7 +86,6 @@ def compute_partitions(semiring):
 
 compute_log_partitions = compute_partitions(log)
 compute_max_partitions = compute_partitions(max)
-compute_ent_partitions = compute_partitions(ent)
 
 
 class CrfDistribution(distributions.Distribution):
@@ -135,21 +134,10 @@ class CrfDistribution(distributions.Distribution):
         )
         return grad
 
-    # @lazy_property
-    # def _entropy(self) -> Tensor:
-    #     return compute_ent_partitions(
-    #         emissions=self.emissions, instr=self.instr,
-    #         unit=ent.fill_unit(self.transitions),
-    #         pack_ptr=self.pack_ptr,
-    #         transitions=self.transitions,
-    #         start_transitions=self.start_transitions,
-    #         end_transitions=self.end_transitions,
-    #     )
-
     @lazy_property
     def entropy(self) -> Tensor:
         marginals = torch.masked_fill(self.marginals, self.marginals == 0, 1.)
-        return (marginals * marginals.log()).sum().neg()
+        return (marginals * marginals.log()).neg()
 
     @lazy_property
     def argmax(self) -> PackedSequence:

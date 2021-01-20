@@ -5,14 +5,6 @@ from torchlatent.functional import logsumexp
 from torchlatent.semiring.abc import compile_fill_unit, compile_bmm, compile_tree_reduction
 
 
-def convert(x: Tensor) -> Tensor:
-    return x
-
-
-def unconvert(x: Tensor) -> Tensor:
-    return x
-
-
 def add(lhs: Tensor, rhs: Tensor) -> Tensor:
     return logsumexp(torch.stack([lhs, rhs], dim=-1), dim=-1)
 
