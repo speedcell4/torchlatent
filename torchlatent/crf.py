@@ -137,7 +137,13 @@ class CrfDistribution(distributions.Distribution):
     @lazy_property
     def entropy(self) -> Tensor:
         marginals = torch.masked_fill(self.marginals, self.marginals == 0, 1.)
-        return (marginals * marginals.log()).neg()
+        src = (marginals * marginals.log()).sum(dim=-1).neg()
+        index = batch_indices(pack=self.emissions)
+        zeros = torch.zeros(
+            (self.emissions.batch_sizes[0],),
+            dtype=torch.float32, device=self.emissions.data.device,
+        )
+        return torch.scatter_add(zeros, src=src, index=index, dim=0)
 
     @lazy_property
     def argmax(self) -> PackedSequence:
@@ -326,21 +332,32 @@ class StackedCrfDecoder(CrfDecoderABC):
 
 
 if __name__ == '__main__':
+    a1 = torch.randn((5, 3), requires_grad=True)
+    a2 = torch.randn((2, 3), requires_grad=True)
+    a3 = torch.randn((3, 3), requires_grad=True)
+
+    decoder = CrfDecoder(num_tags=3)
+
     pack = pack_sequence([
-        torch.tensor([
-            [1, 3],
-            [2, 0],
-        ], dtype=torch.float32, requires_grad=True).log(),
+        a1, a2, a3
     ], enforce_sorted=False)
-
-    decoder = CrfDecoder(num_tags=2)
-    init.zeros_(decoder.transitions)
-    init.zeros_(decoder.start_transitions)
-    init.zeros_(decoder.end_transitions)
-
     dist, _ = decoder.forward(emissions=pack)
-    print(dist.log_partitions)
     print(dist.entropy)
 
-    x = torch.tensor([2. / 8, 6. / 8])
-    print((x * x.log()).sum().neg())
+    pack = pack_sequence([
+        a1,
+    ], enforce_sorted=False)
+    dist, _ = decoder.forward(emissions=pack)
+    print(dist.entropy)
+
+    pack = pack_sequence([
+        a2
+    ], enforce_sorted=False)
+    dist, _ = decoder.forward(emissions=pack)
+    print(dist.entropy)
+
+    pack = pack_sequence([
+        a3
+    ], enforce_sorted=False)
+    dist, _ = decoder.forward(emissions=pack)
+    print(dist.entropy)
