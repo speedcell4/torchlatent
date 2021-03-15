@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 
-from torchlatent.semiring.abc import build_unit_fn, build_reduce_fn
+from torchlatent.semiring.abc import compile_fill_unit, compile_tree_reduction
 
 
 def add(lhs: Tensor, rhs: Tensor) -> Tensor:
@@ -20,9 +20,6 @@ def prod(x: Tensor, dim: int) -> Tensor:
     return x.prod(dim=dim)
 
 
-zero: float = 0.
-one: float = 1.
-build_unit = build_unit_fn(zero=zero, one=one)
-
 bmm = torch.bmm
-reduce = build_reduce_fn(mm_fn=bmm)
+fill_unit = compile_fill_unit(zero=0., one=1.)
+tree_reduce = compile_tree_reduction(bmm=bmm)
