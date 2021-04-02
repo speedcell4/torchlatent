@@ -15,7 +15,6 @@ setup(
     install_requires=[
         'numpy',
         'torchrua',
-        'torchglyph',
     ],
     extras_require={
         'dev': [

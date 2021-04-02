@@ -1,12 +1,10 @@
-from collections import Counter
 from logging import getLogger
-from typing import Tuple, Callable
+from typing import Tuple, Callable, List, Optional
 
 import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import init
-from torchglyph.vocab import Vocab
 
 from torchlatent import CrfDecoderABC
 from torchlatent.functional import logsumexp
@@ -14,42 +12,43 @@ from torchlatent.functional import logsumexp
 logger = getLogger(__name__)
 
 
-def build_syn_sem_mapping(vocab: Vocab, out_token: str, sep: str) -> Tuple[Tensor, Tensor]:
-    syn, sem = Counter(), Counter()
-    for tag in vocab.itos:
-        if tag == out_token:
-            syn.update(out_token)
-            sem.update(None)
-        else:
-            x, y = tag.split(sep)
-            syn.update(x)
-            sem.update(y)
+def factorize_syn_sem(tag: str, out_token: str, sep: str) -> Tuple[Optional[str], Optional[str]]:
+    if tag == out_token:
+        return f'{out_token}_syn', f'{out_token}_sem'
+    else:
+        syn, sem = tag.split(sep)
+        return syn, sem
 
-    syn = Vocab(counter=syn, unk_token=None, pad_token=None)
-    sem = Vocab(counter=sem, unk_token=None, pad_token=None)
-    logger.info(f'syn.vocab({len(syn)}) => {syn.itos}')
-    logger.info(f'sem.vocab({len(sem)}) => {sem.itos}')
 
-    tag_syn, tag_sem = [], []
-    for tag in vocab.itos:
-        if tag == out_token:
-            x, y = out_token, None
-        else:
-            x, y = tag.split(sep)
-        tag_syn.append(syn.stoi[x])
-        tag_sem.append(sem.stoi[x])
+def build_syn_sem_mapping(tags: List[str], out_token: str, sep: str) -> Tuple[Tensor, Tensor]:
+    syn_vocab, sem_vocab = {}, {}
+    for tag in tags:
+        syn, sem = factorize_syn_sem(tag, out_token, sep)
+        if syn not in syn_vocab:
+            syn_vocab[syn] = len(syn_vocab)
+        if sem not in sem_vocab:
+            sem_vocab[sem] = len(sem_vocab)
 
-    syn = torch.tensor(tag_syn, dtype=torch.long)
-    sem = torch.tensor(tag_sem, dtype=torch.long)
-    return syn, sem
+    logger.info(f'syn({len(syn_vocab)}) => {list(syn_vocab.keys())}')
+    logger.info(f'sem({len(sem_vocab)}) => {list(sem_vocab.keys())}')
+
+    syn_tags, sem_tags = [], []
+    for tag in tags:
+        syn, sem = factorize_syn_sem(tag, out_token, sep)
+        syn_tags.append(syn_vocab[syn])
+        sem_tags.append(sem_vocab[sem])
+
+    syn_mapping = torch.tensor(syn_tags, dtype=torch.long)
+    sem_mapping = torch.tensor(sem_tags, dtype=torch.long)
+    return syn_mapping, sem_mapping
 
 
 class SepCrfDecoderABC(CrfDecoderABC):
     aggregate_fn: Callable
 
     @classmethod
-    def from_vocab(cls, vocab: Vocab, out_token: str, sep: str) -> 'SepCrfDecoderABC':
-        syn_mapping, sem_mapping = build_syn_sem_mapping(vocab=vocab, out_token=out_token, sep=sep)
+    def from_tags(cls, tags: List[str], out_token: str, sep: str) -> 'SepCrfDecoderABC':
+        syn_mapping, sem_mapping = build_syn_sem_mapping(tags=tags, out_token=out_token, sep=sep)
         return SepCrfDecoderABC(syn_mapping=syn_mapping, sem_mapping=sem_mapping)
 
     def __init__(self, syn_mapping: Tensor, sem_mapping: Tensor) -> None:
