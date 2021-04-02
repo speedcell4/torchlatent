@@ -1,5 +1,5 @@
 from logging import getLogger
-from typing import Tuple, Callable, List, Optional
+from typing import Tuple, Callable, List
 
 import torch
 from torch import Tensor
@@ -12,12 +12,12 @@ from torchlatent.functional import logsumexp
 logger = getLogger(__name__)
 
 
-def factorize_syn_sem(tag: str, out_token: str, sep: str) -> Tuple[Optional[str], Optional[str]]:
+def factorize_syn_sem(tag: str, out_token: str, sep: str) -> Tuple[str, str]:
     if tag == out_token:
-        return f'{out_token}_syn', f'{out_token}_sem'
+        syn, sem = f'{out_token}_syn', f'{out_token}_sem'
     else:
         syn, sem = tag.split(sep)
-        return syn, sem
+    return syn, sem
 
 
 def build_syn_sem_mapping(tags: List[str], out_token: str, sep: str) -> Tuple[Tensor, Tensor]:
@@ -43,16 +43,16 @@ def build_syn_sem_mapping(tags: List[str], out_token: str, sep: str) -> Tuple[Te
     return syn_mapping, sem_mapping
 
 
-class SepCrfDecoderABC(CrfDecoderABC):
+class FactorizedCrfDecoderABC(CrfDecoderABC):
     aggregate_fn: Callable
 
     @classmethod
-    def from_tags(cls, tags: List[str], out_token: str, sep: str) -> 'SepCrfDecoderABC':
+    def from_tags(cls, tags: List[str], out_token: str, sep: str) -> 'FactorizedCrfDecoderABC':
         syn_mapping, sem_mapping = build_syn_sem_mapping(tags=tags, out_token=out_token, sep=sep)
-        return SepCrfDecoderABC(syn_mapping=syn_mapping, sem_mapping=sem_mapping)
+        return FactorizedCrfDecoderABC(syn_mapping=syn_mapping, sem_mapping=sem_mapping)
 
     def __init__(self, syn_mapping: Tensor, sem_mapping: Tensor) -> None:
-        super(SepCrfDecoderABC, self).__init__(num_packs=None)
+        super(FactorizedCrfDecoderABC, self).__init__(num_packs=None)
 
         num_syn = syn_mapping.max().item() + 1
         num_sem = sem_mapping.max().item() + 1
@@ -99,9 +99,9 @@ class SepCrfDecoderABC(CrfDecoderABC):
         return transitions, start_transitions, end_transitions
 
 
-class SumCrfDecoder(SepCrfDecoderABC):
+class SumCrfDecoder(FactorizedCrfDecoderABC):
     aggregate_fn = torch.sum
 
 
-class LsmCrfDecoder(SepCrfDecoderABC):
+class LseCrfDecoder(FactorizedCrfDecoderABC):
     aggregate_fn = logsumexp
