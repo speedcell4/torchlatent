@@ -1,30 +1,28 @@
 import torch
-from torch.nn.utils.rnn import pack_sequence
+from hypothesis import given, strategies as st
 
+from tests.strategies import length_lists, num_tags_integers, emission_packs, tag_packs
 from torchlatent import CrfDecoder
 from torchlatent.separated_crf import LsmCrfDecoder, SumCrfDecoder
 
 
-def test_separated_crf():
-    num_tags = 70
-    syn_tensor = torch.randint(0, 25, (num_tags,))
-    sem_tensor = torch.randint(0, 25, (num_tags,))
+@given(
+    data=st.data(),
+    lengths=length_lists(),
+    num_tags=num_tags_integers(),
+    num_syn_tags=num_tags_integers(),
+    num_sem_tags=num_tags_integers(),
+)
+def test_separated_crf(data, lengths, num_tags, num_syn_tags, num_sem_tags):
+    emissions = data.draw(emission_packs(lengths=lengths, num_tags=num_tags))
+    tags = data.draw(tag_packs(lengths=lengths, num_tags=num_tags))
+
+    syn_mapping = torch.randint(0, num_syn_tags, (num_tags,))
+    sem_mapping = torch.randint(0, num_sem_tags, (num_tags,))
     crf1 = CrfDecoder(num_tags)
-    crf2 = LsmCrfDecoder(syn_tensor, sem_tensor)
-    crf3 = SumCrfDecoder(syn_tensor, sem_tensor)
+    crf2 = LsmCrfDecoder(syn_mapping, sem_mapping)
+    crf3 = SumCrfDecoder(syn_mapping, sem_mapping)
 
-    emissions = pack_sequence([
-        torch.randn((5, num_tags), requires_grad=True),
-        torch.randn((2, num_tags), requires_grad=True),
-        torch.randn((3, num_tags), requires_grad=True),
-    ], enforce_sorted=False)
-
-    tags = pack_sequence([
-        torch.randint(0, num_tags, (5,)),
-        torch.randint(0, num_tags, (2,)),
-        torch.randint(0, num_tags, (3,)),
-    ], enforce_sorted=False)
-
-    print(crf1.fit(emissions, tags).sum().neg())
-    print(crf2.fit(emissions, tags).sum().neg())
-    print(crf3.fit(emissions, tags).sum().neg())
+    _ = crf1.fit(emissions, tags).sum().neg()
+    _ = crf2.fit(emissions, tags).sum().neg()
+    _ = crf3.fit(emissions, tags).sum().neg()
