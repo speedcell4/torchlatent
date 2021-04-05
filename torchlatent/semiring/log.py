@@ -6,7 +6,15 @@ from torchlatent.semiring.abc import compile_fill_unit, compile_bmm, compile_tre
 
 
 def add(lhs: Tensor, rhs: Tensor) -> Tensor:
-    return logsumexp(torch.stack([lhs, rhs], dim=-1), dim=-1)
+    with torch.no_grad():
+        m = torch.maximum(lhs, rhs)
+        m = torch.where(torch.isinf(m), torch.zeros_like(m), m)
+    z = (lhs - m).exp() + (rhs - m).exp()
+    mask = z == 0
+    z = torch.where(mask, torch.ones_like(z), z).log()
+    z = torch.where(mask, torch.full_like(z, -float('inf')), z) + m
+
+    return z
 
 
 def mul(lhs: Tensor, rhs: Tensor) -> Tensor:
