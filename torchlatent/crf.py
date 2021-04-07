@@ -6,7 +6,7 @@ from torch import Tensor
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
 from torch.nn import init
-from torch.nn.utils.rnn import PackedSequence, pack_sequence
+from torch.nn.utils.rnn import PackedSequence
 from torchrua import packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
 from torchrua.indexing import select_head, select_last, batch_indices
@@ -30,23 +30,26 @@ def compute_log_scores(
     Returns:
         [b, c]
     """
-    batch_ptr = batch_indices(emissions)  # [t1]
-    num_heads = emissions.batch_sizes[0].item()
 
+    batch_ptr = batch_indices(emissions)  # [t1]
+
+    batch_size = emissions.batch_sizes[0].item()
     time = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
     conj = torch.arange(transitions.size(1), device=transitions.device)  # [c2]
 
     src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
-    dst = tags.data  # [t1, s1]
+    dst = tags.data  # [t1, c1]
 
     emissions = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t1, c1]
 
     transitions = transitions[time[:, None], conj[None, :], src, dst]  # [t, c]
-    transitions[:num_heads] = start_transitions[
-        time[:num_heads, None], conj[None, :], select_head(tags, unsort=False)]  # [b, c]
-    scores = end_transitions[time[:num_heads, None], conj[None, :], select_last(tags, unsort=True)]  # [b]
 
-    return scores.scatter_add(dim=0, index=batch_ptr[:, None], src=log.mul(emissions, transitions))
+    transitions[:batch_size] = start_transitions[
+        time[:batch_size, None], conj[None, :], select_head(tags, unsort=False)]  # [b, c]
+    end_transitions = end_transitions[time[:batch_size, None], conj[None, :], select_last(tags, unsort=True)]  # [b, c]
+
+    scores = log.mul(emissions, transitions)
+    return end_transitions.scatter_add(dim=0, index=batch_ptr[:, None].expand_as(scores), src=scores)
 
 
 def compute_partitions(semiring):

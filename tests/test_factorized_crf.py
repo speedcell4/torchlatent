@@ -1,7 +1,7 @@
 import torch
 from hypothesis import given, strategies as st
 
-from tests.strategies import length_lists, num_tags_integers, emission_packs, tag_packs
+from tests.strategies import length_lists, num_tags_integers, emissions_packs, tags_packs
 from torchlatent import CrfDecoder
 from torchlatent.factorized_crf import SumCrfDecoder, LseCrfDecoder
 
@@ -14,8 +14,8 @@ from torchlatent.factorized_crf import SumCrfDecoder, LseCrfDecoder
     num_sem_tags=num_tags_integers(),
 )
 def test_factorized_crf(data, lengths, num_tags, num_syn_tags, num_sem_tags):
-    emissions = data.draw(emission_packs(lengths=lengths, num_tags=num_tags))
-    tags = data.draw(tag_packs(lengths=lengths, num_tags=num_tags))
+    emissions = data.draw(emissions_packs(lengths=lengths, num_tags=num_tags))
+    tags = data.draw(tags_packs(lengths=lengths, num_tags=num_tags))
 
     syn_mapping = torch.randint(0, num_syn_tags, (num_tags,))
     sem_mapping = torch.randint(0, num_sem_tags, (num_tags,))

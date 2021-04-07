@@ -30,7 +30,7 @@ def num_tags_integers(draw, max_num_tags: int = MAX_NUM_TAGS):
 
 
 @st.composite
-def emission_packs(draw, lengths: List[int], num_tags: int):
+def emissions_packs(draw, lengths: List[int], num_tags: int):
     return pack_sequence([
         torch.randn((length, num_tags), requires_grad=True)
         for length in lengths
@@ -38,8 +38,24 @@ def emission_packs(draw, lengths: List[int], num_tags: int):
 
 
 @st.composite
-def tag_packs(draw, lengths: List[int], num_tags: int):
+def conjugated_emissions_packs(draw, lengths: List[int], num_tags: int, num_conjugates: int):
+    return pack_sequence([
+        torch.randn((length, num_conjugates, num_tags), requires_grad=True)
+        for length in lengths
+    ], enforce_sorted=False)
+
+
+@st.composite
+def tags_packs(draw, lengths: List[int], num_tags: int):
     return pack_sequence([
         torch.randint(0, num_tags, (length,))
+        for length in lengths
+    ], enforce_sorted=False)
+
+
+@st.composite
+def conjugated_tags_packs(draw, lengths: List[int], num_tags: int, num_conjugates: int):
+    return pack_sequence([
+        torch.randint(0, num_tags, (length, num_conjugates))
         for length in lengths
     ], enforce_sorted=False)
