@@ -288,10 +288,10 @@ class ConjugatedCrfDecoder(CrfDecoderABC):
             crf_decoder.reset_parameters(bound=bound)
 
     def obtain_parameters(self, *args, **kwargs):
-        transitions, start_transitions, end_transitions = zip(
-            *crf_decoder.obtain_parameters(*args, **kwargs)
+        transitions, start_transitions, end_transitions = zip(*[
+            crf_decoder.obtain_parameters(*args, **kwargs)
             for crf_decoder in self.crf_decoders
-        )
+        ])
         transitions = torch.stack(transitions, dim=1)
         start_transitions = torch.stack(start_transitions, dim=1)
         end_transitions = torch.stack(end_transitions, dim=1)
