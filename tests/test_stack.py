@@ -86,22 +86,22 @@ def test_stack_instr(
 
     decoder = CrfDecoder(num_tags)
 
-    _, _, _, batch_ptr, instr = decoder._validate(
+    _, _, _, instr = decoder._validate(
         emissions=emissions[0], tags=tags[0],
-        lengths=None, batch_ptr=None, instr=None,
+        lengths=None, instr=None,
     )
-    stacked_batch_ptr, stacked_instr = stack_instr(
-        batch_ptr=batch_ptr, instr=instr, n=num_packs,
+    stacked_instr = stack_instr(
+        instr=instr, n=num_packs,
     )
 
     losses = [
-        decoder.fit(e, t, batch_ptr=batch_ptr, instr=instr)
+        decoder.fit(e, t, instr=instr)
         for e, t in zip(emissions, tags)
     ]
     loss1 = rearrange(torch.stack(losses, dim=1), 'b n ...-> (b n) ...')
     loss2 = decoder.fit(
         stacked_emissions, stacked_tags,
-        batch_ptr=stacked_batch_ptr, instr=stacked_instr,
+        instr=stacked_instr,
     )
 
     assert_equal(loss1, loss2)

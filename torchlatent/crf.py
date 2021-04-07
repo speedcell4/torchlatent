@@ -7,18 +7,18 @@ from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence, pack_sequence
-from torchrua import batch_indices
 from torchrua import packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
-from torchrua.indexing import select_head, select_last
+from torchrua.indexing import select_head, select_last, batch_indices
 
 from torchlatent.instr import BatchedInstr, build_crf_batched_instr
 from torchlatent.semiring import log, max
 
 
 def compute_log_scores(
-        emissions: PackedSequence, tags: PackedSequence, batch_ptr: PackedSequence, pack_ptr: Optional[Tensor],
+        emissions: PackedSequence, tags: PackedSequence, pack_ptr: Optional[Tensor],
         transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
+    batch_ptr = batch_indices(emissions)
     num_heads = emissions.batch_sizes[0].item()
     shifted_tags = roll_packed_sequence(tags, offset=1)
 
@@ -37,7 +37,8 @@ def compute_log_scores(
     transitions[:num_heads] = start_transitions[start_indices]
 
     scores = end_transitions[end_indices]  # [p]
-    return scores.scatter_add(dim=0, index=batch_ptr.data, src=log.mul(emissions, transitions))
+
+    return scores.scatter_add(dim=0, index=batch_ptr, src=log.mul(emissions, transitions))
 
 
 def compute_partitions(semiring):
@@ -89,12 +90,11 @@ compute_max_partitions = compute_partitions(max)
 
 
 class CrfDistribution(distributions.Distribution):
-    def __init__(self, emissions: PackedSequence, batch_ptr: PackedSequence, instr: BatchedInstr,
+    def __init__(self, emissions: PackedSequence, instr: BatchedInstr,
                  pack_ptr: Optional[Tensor],
                  transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> None:
         super(CrfDistribution, self).__init__()
         self.emissions = emissions
-        self.batch_ptr = batch_ptr
         self.instr = instr
 
         self.pack_ptr = pack_ptr
@@ -107,7 +107,7 @@ class CrfDistribution(distributions.Distribution):
 
     def log_scores(self, tags: PackedSequence) -> Tensor:
         return compute_log_scores(
-            emissions=self.emissions, tags=tags, batch_ptr=self.batch_ptr,
+            emissions=self.emissions, tags=tags,
             pack_ptr=self.pack_ptr,
             transitions=self.transitions,
             start_transitions=self.start_transitions,
@@ -182,15 +182,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         raise NotImplementedError
 
     def _validate(self, emissions: PackedSequence,
-                  tags: Optional[PackedSequence], lengths: Optional[Tensor],
-                  batch_ptr: Optional[PackedSequence], instr: Optional[BatchedInstr]):
-        if batch_ptr is None:
-            batch_ptr = PackedSequence(
-                data=batch_indices(pack=emissions),
-                batch_sizes=emissions.batch_sizes,
-                sorted_indices=emissions.sorted_indices,
-                unsorted_indices=emissions.unsorted_indices,
-            )
+                  tags: Optional[PackedSequence], lengths: Optional[Tensor], instr: Optional[BatchedInstr]):
 
         if instr is None:
             if lengths is None:
@@ -204,25 +196,25 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
             pack_ptr = None
         else:
             pack_ptr = self.pack_ptr.repeat((emissions.data.size(0) // self.pack_ptr.size(0),))
-        return emissions, tags, pack_ptr, batch_ptr, instr
+        return emissions, tags, pack_ptr, instr
 
     def _obtain_parameters(self, *args, **kwargs):
         return self.transitions, self.start_transitions, self.end_transitions
 
     def forward(self, emissions: PackedSequence,
                 tags: Optional[PackedSequence] = None, lengths: Optional[Tensor] = None,
-                batch_ptr: Optional[PackedSequence] = None, instr: Optional[BatchedInstr] = None):
-        emissions, tags, pack_ptr, batch_ptr, instr = self._validate(
+                instr: Optional[BatchedInstr] = None):
+        emissions, tags, pack_ptr, instr = self._validate(
             emissions=emissions, tags=tags, lengths=lengths,
-            batch_ptr=batch_ptr, instr=instr,
+            instr=instr,
         )
         transitions, start_transitions, end_transitions = self._obtain_parameters(
             emissions=emissions, tags=tags,
-            batch_ptr=batch_ptr, instr=instr,
+            instr=instr,
         )
 
         dist = CrfDistribution(
-            emissions=emissions, batch_ptr=batch_ptr, instr=instr,
+            emissions=emissions, instr=instr,
             pack_ptr=pack_ptr,
             transitions=transitions,
             start_transitions=start_transitions,
@@ -233,10 +225,10 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
 
     def fit(self, emissions: PackedSequence, tags: PackedSequence,
             reduction: str = 'none', lengths: Optional[Tensor] = None,
-            batch_ptr: Optional[PackedSequence] = None, instr: Optional[BatchedInstr] = None) -> Tensor:
+            instr: Optional[BatchedInstr] = None) -> Tensor:
         dist, tags = self(
             emissions=emissions, tags=tags, lengths=lengths,
-            batch_ptr=batch_ptr, instr=instr,
+            instr=instr,
         )
 
         loss = dist.log_prob(tags)
@@ -256,19 +248,19 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         raise NotImplementedError(f'{reduction} is not supported')
 
     def decode(self, emissions: PackedSequence, lengths: Optional[Tensor] = None,
-               batch_ptr: Optional[PackedSequence] = None, instr: Optional[BatchedInstr] = None) -> PackedSequence:
+               instr: Optional[BatchedInstr] = None) -> PackedSequence:
         dist, _ = self.forward(
             emissions=emissions, tags=None, lengths=lengths,
-            batch_ptr=batch_ptr, instr=instr,
+            instr=instr,
         )
 
         return dist.argmax
 
     def marginals(self, emissions: PackedSequence, lengths: Optional[Tensor] = None,
-                  batch_ptr: Optional[PackedSequence] = None, instr: Optional[BatchedInstr] = None) -> Tensor:
+                  instr: Optional[BatchedInstr] = None) -> Tensor:
         dist, _ = self.forward(
             emissions=emissions, tags=None, lengths=lengths,
-            batch_ptr=batch_ptr, instr=instr,
+            instr=instr,
         )
 
         return dist.marginals
