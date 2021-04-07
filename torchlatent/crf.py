@@ -10,42 +10,6 @@ from torch.nn.utils.rnn import PackedSequence
 from torchrua import packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
 from torchrua import select_head, select_last, batch_indices
-import sys
-import logging
-from collections import Counter
-from logging import Logger
-import math
-import random
-from pathlib import Path
-
-from typing import Union, Optional, List, Tuple, NamedTuple, Set, Dict, Callable
-from typing import Generator, Iterable, KeysView, ValuesView, ItemsView, Any, Type, NewType
-
-import numpy as np
-from colorlog import colorlog
-from einops import rearrange, reduce
-from einops.layers.torch import Rearrange, Reduce
-
-import torch
-from torch import Tensor
-from torch.nn import init
-from torch.nn import functional as F
-from torch.nn.init import calculate_gain
-from torch.utils.checkpoint import checkpoint, checkpoint_sequential
-from torch import nn, jit, cuda, initial_seed, autograd, optim, distributions
-from torch.nn.utils.rnn import PackedSequence, pad_sequence, pack_sequence
-
-from torchrua import pack_padded_sequence, pad_packed_sequence, packed_fn, Packed, PackedMeta, PackedSequential, \
-    lengths_to_mask
-from torchglyph.vocab import Vocab, Vectors
-from torchglyph.dataset import Dataset, DataLoader
-from torchglyph.pipe import Pipe, RawPipe, SeqLengthTensorPipe, PaddedTokLengthPipe
-from torchglyph.pipe import IdxTensorPipe, PackedIdxSeqPipe, PackedIdxBlockPipe, PaddedIdxSeqPipe, PaddedIdxBlockPipe
-from torchglyph.pipe import TokTensorPipe, PackedTokSeqPipe, PackedTokBlockPipe, PaddedTokSeqPipe, PaddedTokBlockPipe
-from torchglyph.pipe import PackedPtrSeqPipe, PackedTokPtrSeqPipe, PackedSeqPtrSeqPipe
-
-from hypothesis import given, strategies as st
-from string import ascii_letters, digits
 
 from torchlatent.instr import BatchedInstr, build_crf_batched_instr
 from torchlatent.semiring import log, max
@@ -141,13 +105,11 @@ compute_max_partitions = compute_partitions(max)
 
 class CrfDistribution(distributions.Distribution):
     def __init__(self, emissions: PackedSequence, instr: BatchedInstr,
-                 pack_ptr: Optional[Tensor],
                  transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> None:
         super(CrfDistribution, self).__init__()
         self.emissions = emissions
         self.instr = instr
 
-        self.pack_ptr = pack_ptr
         self.transitions = transitions
         self.start_transitions = start_transitions
         self.end_transitions = end_transitions
@@ -158,7 +120,6 @@ class CrfDistribution(distributions.Distribution):
     def log_scores(self, tags: PackedSequence) -> Tensor:
         return compute_log_scores(
             emissions=self.emissions, tags=tags,
-            pack_ptr=self.pack_ptr,
             transitions=self.transitions,
             start_transitions=self.start_transitions,
             end_transitions=self.end_transitions,
@@ -169,7 +130,6 @@ class CrfDistribution(distributions.Distribution):
         return compute_log_partitions(
             emissions=self.emissions, instr=self.instr,
             unit=log.fill_unit(self.transitions),
-            pack_ptr=self.pack_ptr,
             transitions=self.transitions,
             start_transitions=self.start_transitions,
             end_transitions=self.end_transitions,
@@ -200,7 +160,6 @@ class CrfDistribution(distributions.Distribution):
         partitions = compute_max_partitions(
             emissions=self.emissions, instr=self.instr,
             unit=max.fill_unit(self.transitions),
-            pack_ptr=self.pack_ptr,
             transitions=self.transitions,
             start_transitions=self.start_transitions,
             end_transitions=self.end_transitions,
@@ -219,53 +178,43 @@ class CrfDistribution(distributions.Distribution):
 
 
 class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
-    def __init__(self, num_packs: int = None):
+    def __init__(self, num_tags: int, num_conjugates: int):
         super(CrfDecoderABC, self).__init__()
 
-        self.num_packs = num_packs
-        if num_packs is None:
-            self.pack_ptr = None
-        else:
-            self.register_buffer('pack_ptr', torch.arange(num_packs, dtype=torch.long))
+        self.num_tags = num_tags
+        self.num_conjugates = num_conjugates
 
     def reset_parameters(self, bound: float = 0.01) -> None:
         raise NotImplementedError
 
-    def _validate(self, emissions: PackedSequence,
-                  tags: Optional[PackedSequence], lengths: Optional[Tensor], instr: Optional[BatchedInstr]):
+    def extra_repr(self) -> str:
+        return ', '.join([
+            f'num_tags={self.num_tags}',
+            f'num_conjugates={self.num_conjugates}',
+        ])
 
+    @staticmethod
+    def _validate(emissions: PackedSequence, tags: Optional[PackedSequence], instr: Optional[BatchedInstr]):
         if instr is None:
-            if lengths is None:
-                lengths = packed_sequence_to_lengths(pack=emissions, unsort=True)
+            lengths = packed_sequence_to_lengths(pack=emissions, unsort=True)
             instr = build_crf_batched_instr(
                 lengths=lengths, device=emissions.data.device,
                 sorted_indices=emissions.sorted_indices,
             )
 
-        if self.pack_ptr is None:
-            pack_ptr = None
-        else:
-            pack_ptr = self.pack_ptr.repeat((emissions.data.size(0) // self.pack_ptr.size(0),))
-        return emissions, tags, pack_ptr, instr
+        return emissions, tags, instr
 
-    def _obtain_parameters(self, *args, **kwargs):
+    def obtain_parameters(self, *args, **kwargs):
         return self.transitions, self.start_transitions, self.end_transitions
 
-    def forward(self, emissions: PackedSequence,
-                tags: Optional[PackedSequence] = None, lengths: Optional[Tensor] = None,
+    def forward(self, emissions: PackedSequence, tags: Optional[PackedSequence] = None,
                 instr: Optional[BatchedInstr] = None):
-        emissions, tags, pack_ptr, instr = self._validate(
-            emissions=emissions, tags=tags, lengths=lengths,
-            instr=instr,
-        )
-        transitions, start_transitions, end_transitions = self._obtain_parameters(
-            emissions=emissions, tags=tags,
-            instr=instr,
-        )
+        emissions, tags, instr = self._validate(emissions=emissions, tags=tags, instr=instr)
+        transitions, start_transitions, end_transitions = self.obtain_parameters(
+            emissions=emissions, tags=tags, instr=instr)
 
         dist = CrfDistribution(
             emissions=emissions, instr=instr,
-            pack_ptr=pack_ptr,
             transitions=transitions,
             start_transitions=start_transitions,
             end_transitions=end_transitions,
@@ -274,57 +223,40 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         return dist, tags
 
     def fit(self, emissions: PackedSequence, tags: PackedSequence,
-            reduction: str = 'none', lengths: Optional[Tensor] = None,
-            instr: Optional[BatchedInstr] = None) -> Tensor:
-        dist, tags = self(
-            emissions=emissions, tags=tags, lengths=lengths,
-            instr=instr,
-        )
+            instr: Optional[BatchedInstr] = None, reduction: str = 'none') -> Tensor:
+        dist, tags = self(emissions=emissions, tags=tags, instr=instr)
 
-        loss = dist.log_prob(tags)
+        log_prob = dist.log_prob(tags)
 
         if reduction == 'none':
-            return loss
+            return log_prob
         if reduction == 'sum':
-            return loss.sum()
+            return log_prob.sum()
         if reduction == 'mean':
-            return loss.mean()
-        if reduction == 'batch_mean':
-            if lengths is None:
-                lengths = packed_sequence_to_lengths(pack=emissions, unsort=True, dtype=torch.float32)
-            return (loss / lengths.float()).mean()
-        if reduction == 'token_mean':
-            return loss.sum() / emissions.data.size(0)
+            return log_prob.mean()
         raise NotImplementedError(f'{reduction} is not supported')
 
-    def decode(self, emissions: PackedSequence, lengths: Optional[Tensor] = None,
-               instr: Optional[BatchedInstr] = None) -> PackedSequence:
-        dist, _ = self.forward(
-            emissions=emissions, tags=None, lengths=lengths,
-            instr=instr,
-        )
+    def decode(self, emissions: PackedSequence, instr: Optional[BatchedInstr] = None) -> PackedSequence:
+        dist, _ = self(emissions=emissions, tags=None, instr=instr)
 
         return dist.argmax
 
-    def marginals(self, emissions: PackedSequence, lengths: Optional[Tensor] = None,
-                  instr: Optional[BatchedInstr] = None) -> Tensor:
-        dist, _ = self.forward(
-            emissions=emissions, tags=None, lengths=lengths,
-            instr=instr,
-        )
+    def marginals(self, emissions: PackedSequence, instr: Optional[BatchedInstr] = None) -> Tensor:
+        dist, _ = self(emissions=emissions, tags=None, instr=instr)
 
         return dist.marginals
 
 
 class CrfDecoder(CrfDecoderABC):
-    def __init__(self, num_tags: int) -> None:
-        super(CrfDecoder, self).__init__(num_packs=None)
+    def __init__(self, num_tags: int, num_conjugates: int = 1) -> None:
+        super(CrfDecoder, self).__init__(num_tags=num_tags, num_conjugates=num_conjugates)
 
-        self.num_tags = num_tags
-
-        self.transitions = nn.Parameter(torch.empty((self.num_tags, self.num_tags)), requires_grad=True)
-        self.start_transitions = nn.Parameter(torch.empty((self.num_tags,)), requires_grad=True)
-        self.end_transitions = nn.Parameter(torch.empty((self.num_tags,)), requires_grad=True)
+        self.transitions = nn.Parameter(torch.empty(
+            (self.num_conjugates, self.num_tags, self.num_tags)), requires_grad=True)
+        self.start_transitions = nn.Parameter(torch.empty(
+            (self.num_conjugates, self.num_tags,)), requires_grad=True)
+        self.end_transitions = nn.Parameter(torch.empty(
+            (self.num_conjugates, self.num_tags,)), requires_grad=True)
 
         self.reset_parameters()
 
@@ -337,37 +269,30 @@ class CrfDecoder(CrfDecoderABC):
     def extra_repr(self) -> str:
         return ', '.join([
             f'num_tags={self.num_tags}',
+            f'num_conjugates={self.num_conjugates}',
         ])
 
 
-class StackedCrfDecoder(CrfDecoderABC):
-    def __init__(self, *decoders: CrfDecoderABC) -> None:
-        super(StackedCrfDecoder, self).__init__(num_packs=len(decoders))
+class ConjugatedCrfDecoder(CrfDecoderABC):
+    def __init__(self, *crf_decoders: CrfDecoderABC) -> None:
+        super(ConjugatedCrfDecoder, self).__init__(num_tags=crf_decoders[0].num_tags, num_conjugates=0)
 
-        self.num_tags = decoders[0].num_tags
-        self.decoders = nn.ModuleList(decoders)
+        self.crf_decoders = nn.ModuleList(crf_decoders)
+        for crf_decoder in self.crf_decoders:
+            assert self.num_tags == crf_decoder.num_tags
+            self.num_conjugates += crf_decoder.num_conjugates
 
-        for decoder in decoders:
-            assert self.num_tags == decoder.num_tags
-
+    @torch.no_grad()
     def reset_parameters(self, bound: float = 0.01) -> None:
-        for decoder in self.decoders:
-            decoder.reset_parameters()
+        for crf_decoder in self.crf_decoders:
+            crf_decoder.reset_parameters(bound=bound)
 
-    def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.extra_repr()})'
-
-    def extra_repr(self) -> str:
-        return ', '.join([
-            f'num_tags={self.num_tags}',
-            f'num_packs={self.num_packs}',
-        ])
-
-    def _obtain_parameters(self, *args, **kwargs):
-        transitions, start_transitions, end_transitions = zip(*[
-            decoder._obtain_parameters(*args, **kwargs) for decoder in self.decoders
-        ])
-        transitions = torch.stack(transitions, dim=0)
-        start_transitions = torch.stack(start_transitions, dim=0)
-        end_transitions = torch.stack(end_transitions, dim=0)
+    def obtain_parameters(self, *args, **kwargs):
+        transitions, start_transitions, end_transitions = zip(
+            *crf_decoder.obtain_parameters(*args, **kwargs)
+            for crf_decoder in self.crf_decoders
+        )
+        transitions = torch.stack(transitions, dim=1)
+        start_transitions = torch.stack(start_transitions, dim=1)
+        end_transitions = torch.stack(end_transitions, dim=1)
         return transitions, start_transitions, end_transitions
