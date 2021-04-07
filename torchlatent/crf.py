@@ -9,7 +9,43 @@ from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
 from torchrua import packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
-from torchrua.indexing import select_head, select_last, batch_indices
+from torchrua import select_head, select_last, batch_indices
+import sys
+import logging
+from collections import Counter
+from logging import Logger
+import math
+import random
+from pathlib import Path
+
+from typing import Union, Optional, List, Tuple, NamedTuple, Set, Dict, Callable
+from typing import Generator, Iterable, KeysView, ValuesView, ItemsView, Any, Type, NewType
+
+import numpy as np
+from colorlog import colorlog
+from einops import rearrange, reduce
+from einops.layers.torch import Rearrange, Reduce
+
+import torch
+from torch import Tensor
+from torch.nn import init
+from torch.nn import functional as F
+from torch.nn.init import calculate_gain
+from torch.utils.checkpoint import checkpoint, checkpoint_sequential
+from torch import nn, jit, cuda, initial_seed, autograd, optim, distributions
+from torch.nn.utils.rnn import PackedSequence, pad_sequence, pack_sequence
+
+from torchrua import pack_padded_sequence, pad_packed_sequence, packed_fn, Packed, PackedMeta, PackedSequential, \
+    lengths_to_mask
+from torchglyph.vocab import Vocab, Vectors
+from torchglyph.dataset import Dataset, DataLoader
+from torchglyph.pipe import Pipe, RawPipe, SeqLengthTensorPipe, PaddedTokLengthPipe
+from torchglyph.pipe import IdxTensorPipe, PackedIdxSeqPipe, PackedIdxBlockPipe, PaddedIdxSeqPipe, PaddedIdxBlockPipe
+from torchglyph.pipe import TokTensorPipe, PackedTokSeqPipe, PackedTokBlockPipe, PaddedTokSeqPipe, PaddedTokBlockPipe
+from torchglyph.pipe import PackedPtrSeqPipe, PackedTokPtrSeqPipe, PackedSeqPtrSeqPipe
+
+from hypothesis import given, strategies as st
+from string import ascii_letters, digits
 
 from torchlatent.instr import BatchedInstr, build_crf_batched_instr
 from torchlatent.semiring import log, max
@@ -34,19 +70,19 @@ def compute_log_scores(
     batch_ptr = batch_indices(emissions)  # [t1]
 
     batch_size = emissions.batch_sizes[0].item()
-    time = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
-    conj = torch.arange(transitions.size(1), device=transitions.device)  # [c2]
+    t2 = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
+    c2 = torch.arange(transitions.size(1), device=transitions.device)  # [c2]
 
     src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
     dst = tags.data  # [t1, c1]
 
     emissions = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t1, c1]
 
-    transitions = transitions[time[:, None], conj[None, :], src, dst]  # [t, c]
+    transitions = transitions[t2[:, None], c2[None, :], src, dst]  # [t, c]
 
     transitions[:batch_size] = start_transitions[
-        time[:batch_size, None], conj[None, :], select_head(tags, unsort=False)]  # [b, c]
-    end_transitions = end_transitions[time[:batch_size, None], conj[None, :], select_last(tags, unsort=True)]  # [b, c]
+        t2[:batch_size, None], c2[None, :], select_head(tags, unsort=False)]  # [b, c]
+    end_transitions = end_transitions[t2[:batch_size, None], c2[None, :], select_last(tags, unsort=True)]  # [b, c]
 
     scores = log.mul(emissions, transitions)
     return end_transitions.scatter_add(dim=0, index=batch_ptr[:, None].expand_as(scores), src=scores)
@@ -54,34 +90,38 @@ def compute_log_scores(
 
 def compute_partitions(semiring):
     def _compute_partitions_fn(
-            emissions: PackedSequence, instr: BatchedInstr, pack_ptr: Optional[Tensor],
+            emissions: PackedSequence, instr: BatchedInstr,
             transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor, unit: Tensor) -> Tensor:
-        num_heads = emissions.batch_sizes[0].item()
+        """
 
-        if pack_ptr is None:
-            transitions_indices = ...,
-            start_indices = None,
-            end_indices = None,
-        else:
-            transitions_indices = pack_ptr,
-            start_indices = pack_ptr[:num_heads],
-            end_indices = pack_ptr[:num_heads],
+        Args:
+            emissions: [t1, c1, n]
+            instr:
+            transitions: [t2, c2, n, n]
+            start_transitions: [t2, c2, n]
+            end_transitions: [t2, c2, n]
+            unit: [n, n]
 
-        start = semiring.mul(
-            start_transitions[start_indices],
-            emissions.data[emissions.unsorted_indices],
-        )  # [p, c, t]
-        end = end_transitions[end_indices]  # [p, c, t]
+        Returns:
+            [b, c]
+        """
 
-        transitions = semiring.mul(
-            transitions[transitions_indices],
-            emissions.data[:, None, :],
-        )  # [p, c, t, t]
-        transitions[:num_heads] = unit[None, ..., :, :]
+        batch_size = emissions.batch_sizes[0].item()
+        t2 = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
+        c2 = torch.arange(transitions.size(1), device=transitions.device)  # [c2]
 
-        transitions = semiring.tree_reduce(
+        scores = log.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
+        scores[:batch_size] = unit[None, None, :, :]
+
+        start_scores = log.mul(  # [t, c, 1, n]
+            start_transitions[t2[:batch_size, None], c2[None, :], None, :],
+            emissions.data[emissions.unsorted_indices, :, None, :],
+        )
+        end_scores = end_transitions[t2[:batch_size, None], c2[None, :], :, None]  # [t, c, n, 1]
+
+        scores = semiring.tree_reduce(
             pack=PackedSequence(
-                data=transitions,
+                data=scores,
                 batch_sizes=emissions.batch_sizes,
                 sorted_indices=emissions.sorted_indices,
                 unsorted_indices=emissions.unsorted_indices,
@@ -89,8 +129,7 @@ def compute_partitions(semiring):
         )
 
         return semiring.bmm(
-            semiring.bmm(start[..., None, :], transitions),
-            end[..., :, None],
+            semiring.bmm(start_scores, scores), end_scores
         )[..., 0, 0]
 
     return _compute_partitions_fn
