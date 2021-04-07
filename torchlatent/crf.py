@@ -16,29 +16,37 @@ from torchlatent.semiring import log, max
 
 
 def compute_log_scores(
-        emissions: PackedSequence, tags: PackedSequence, pack_ptr: Optional[Tensor],
+        emissions: PackedSequence, tags: PackedSequence,
         transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
-    batch_ptr = batch_indices(emissions)
+    """
+
+    Args:
+        emissions: [t1, c1, n]
+        tags: [t1, c1]
+        transitions: [t2, c2, n, n]
+        start_transitions: [t2, c2, n]
+        end_transitions: [t2, c2, n]
+
+    Returns:
+        [b, c]
+    """
+    batch_ptr = batch_indices(emissions)  # [t1]
     num_heads = emissions.batch_sizes[0].item()
-    shifted_tags = roll_packed_sequence(tags, offset=1)
 
-    if pack_ptr is None:
-        transitions_indices = shifted_tags.data, tags.data,
-        start_indices = select_head(tags, unsort=False),
-        end_indices = select_last(tags, unsort=True),
-    else:
-        transitions_indices = pack_ptr, shifted_tags.data, tags.data,
-        start_indices = pack_ptr[:num_heads], select_head(tags, unsort=False),
-        end_indices = pack_ptr[:num_heads], select_last(tags, unsort=True),
+    time = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
+    conj = torch.arange(transitions.size(1), device=transitions.device)  # [c2]
 
-    emissions = emissions.data.gather(dim=-1, index=tags.data[:, None])[:, 0]  # [p]
+    src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
+    dst = tags.data  # [t1, s1]
 
-    transitions = transitions[transitions_indices]  # [p]
-    transitions[:num_heads] = start_transitions[start_indices]
+    emissions = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t1, c1]
 
-    scores = end_transitions[end_indices]  # [p]
+    transitions = transitions[time[:, None], conj[None, :], src, dst]  # [t, c]
+    transitions[:num_heads] = start_transitions[
+        time[:num_heads, None], conj[None, :], select_head(tags, unsort=False)]  # [b, c]
+    scores = end_transitions[time[:num_heads, None], conj[None, :], select_last(tags, unsort=True)]  # [b]
 
-    return scores.scatter_add(dim=0, index=batch_ptr, src=log.mul(emissions, transitions))
+    return scores.scatter_add(dim=0, index=batch_ptr[:, None], src=log.mul(emissions, transitions))
 
 
 def compute_partitions(semiring):
@@ -321,35 +329,3 @@ class StackedCrfDecoder(CrfDecoderABC):
         start_transitions = torch.stack(start_transitions, dim=0)
         end_transitions = torch.stack(end_transitions, dim=0)
         return transitions, start_transitions, end_transitions
-
-
-if __name__ == '__main__':
-    a1 = torch.randn((5, 3), requires_grad=True)
-    a2 = torch.randn((2, 3), requires_grad=True)
-    a3 = torch.randn((3, 3), requires_grad=True)
-
-    decoder = CrfDecoder(num_tags=3)
-
-    pack = pack_sequence([
-        a1, a2, a3
-    ], enforce_sorted=False)
-    dist, _ = decoder.forward(emissions=pack)
-    print(dist.entropy)
-
-    pack = pack_sequence([
-        a1,
-    ], enforce_sorted=False)
-    dist, _ = decoder.forward(emissions=pack)
-    print(dist.entropy)
-
-    pack = pack_sequence([
-        a2
-    ], enforce_sorted=False)
-    dist, _ = decoder.forward(emissions=pack)
-    print(dist.entropy)
-
-    pack = pack_sequence([
-        a3
-    ], enforce_sorted=False)
-    dist, _ = decoder.forward(emissions=pack)
-    print(dist.entropy)
