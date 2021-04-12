@@ -9,7 +9,7 @@ from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
 from torchrua import packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
-from torchrua import select_head, select_last, batch_indices
+from torchrua import select_head, select_last, batch_sizes_to_ptr
 
 from torchlatent.instr import BatchedInstr, build_crf_batched_instr
 from torchlatent.semiring import log, max
@@ -31,7 +31,12 @@ def compute_log_scores(
         [b, c]
     """
 
-    batch_ptr = batch_indices(emissions)  # [t1]
+    batch_ptr, _, _ = batch_sizes_to_ptr(
+        batch_sizes=emissions.batch_sizes,
+        sorted_indices=emissions.sorted_indices,
+        unsorted_indices=emissions.unsorted_indices,
+        total_length=None, device=emissions.data.device,
+    )  # [t1]
 
     batch_size = emissions.batch_sizes[0].item()
     t2 = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
@@ -148,12 +153,17 @@ class CrfDistribution(distributions.Distribution):
     def entropy(self) -> Tensor:
         marginals = torch.masked_fill(self.marginals, self.marginals == 0, 1.)
         src = (marginals * marginals.log()).sum(dim=-1).neg()
-        index = batch_indices(pack=self.emissions)
+        batch_ptr, _, _ = batch_sizes_to_ptr(
+            batch_sizes=self.emissions.batch_sizes,
+            sorted_indices=self.emissions.sorted_indices,
+            unsorted_indices=self.emissions.unsorted_indices,
+            total_length=None, device=self.emissions.data.device,
+        )  # [t1]
         zeros = torch.zeros(
             (self.emissions.batch_sizes[0],),
             dtype=torch.float32, device=self.emissions.data.device,
         )
-        return torch.scatter_add(zeros, src=src, index=index, dim=0)
+        return torch.scatter_add(zeros, src=src, index=batch_ptr, dim=0)
 
     @lazy_property
     def argmax(self) -> PackedSequence:
