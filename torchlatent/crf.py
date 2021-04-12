@@ -31,6 +31,12 @@ def compute_log_scores(
         [b, c]
     """
 
+    assert emissions.data.dim() == 3
+    assert tags.data.dim() == 2
+    assert transitions.dim() == 4
+    assert start_transitions.dim() == 3
+    assert end_transitions.dim() == 3
+
     batch_ptr, _, _ = batch_sizes_to_ptr(
         batch_sizes=emissions.batch_sizes,
         sorted_indices=emissions.sorted_indices,
@@ -74,6 +80,11 @@ def compute_partitions(semiring):
         Returns:
             [b, c]
         """
+
+        assert emissions.data.dim() == 3
+        assert transitions.dim() == 4
+        assert start_transitions.dim() == 3
+        assert end_transitions.dim() == 3
 
         batch_size = emissions.batch_sizes[0].item()
         t2 = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
