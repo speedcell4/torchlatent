@@ -1,9 +1,11 @@
 import torch
 from hypothesis import given, strategies as st
+from torch.nn.utils.rnn import pack_sequence
 from torchcrf import CRF
 from torchrua import pad_packed_sequence, lengths_to_mask
 
 from tests.strategies import length_lists, num_tags_integers, conjugated_emissions_packs, conjugated_tags_packs
+from torchlatent import CrfDecoder, ConjugatedCrfDecoder
 from torchlatent.crf import compute_log_scores, compute_log_partitions
 from torchlatent.instr import build_crf_batched_instr
 from torchlatent.semiring import log
@@ -199,3 +201,148 @@ def test_compute_log_partitions_given_crfs(data, lengths, num_tags, num_conjugat
     )
 
     assert torch.allclose(out_grad, tgt_grad, rtol=1e-3, atol=1e-3)
+
+
+@given(
+    data=st.data(),
+    lengths=length_lists(),
+    num_tags=num_tags_integers(),
+    num_conjugates=num_tags_integers(),
+)
+def test_crf_decoder_given_emissions(data, lengths, num_tags, num_conjugates):
+    crf_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=1)
+    tgt_crf = CRF(num_tags=num_tags)
+
+    with torch.no_grad():
+        crf_decoder.transitions.data = tgt_crf.transitions[None, None, :, :]
+        crf_decoder.start_transitions.data = tgt_crf.start_transitions[None, None, :]
+        crf_decoder.end_transitions.data = tgt_crf.end_transitions[None, None, :]
+
+    emissions = data.draw(
+        conjugated_emissions_packs(
+            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+    tags = data.draw(
+        conjugated_tags_packs(
+            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+
+    padded_emissions, lengths = pad_packed_sequence(emissions, batch_first=False)
+    mask = lengths_to_mask(lengths=lengths, batch_first=False)
+    padded_tags, _ = pad_packed_sequence(tags, batch_first=False)
+
+    instr = build_crf_batched_instr(lengths=lengths)
+
+    our = crf_decoder.fit(emissions=emissions, tags=tags, instr=instr, reduction='none')
+
+    tgt = torch.stack([
+        tgt_crf.forward(
+            emissions=padded_emissions[..., index, :],
+            tags=padded_tags[..., index],
+            mask=mask, reduction='none',
+        )
+        for index in range(num_conjugates)
+    ], dim=1)
+
+    assert torch.allclose(our, tgt, rtol=1e-3, atol=1e-3)
+
+    out_grad, = torch.autograd.grad(
+        our, emissions.data, torch.ones_like(our),
+        retain_graph=False, create_graph=False, only_inputs=True,
+    )
+    tgt_grad, = torch.autograd.grad(
+        tgt, emissions.data, torch.ones_like(tgt),
+        retain_graph=False, create_graph=False, only_inputs=True,
+    )
+
+    assert torch.allclose(out_grad, tgt_grad, rtol=1e-3, atol=1e-3)
+
+    out_pred = crf_decoder.decode(emissions=emissions, instr=instr)
+
+    tgt_pred = [
+        pack_sequence([
+            torch.tensor(x, dtype=torch.long)
+            for x in tgt_crf.decode(padded_emissions[..., index, :], mask=mask)
+        ], enforce_sorted=False)
+        for index in range(num_conjugates)
+    ]
+    tgt_pred = tgt_pred[0]._replace(data=torch.stack([
+        t.data for t in tgt_pred
+    ], dim=1))
+
+    assert torch.equal(out_pred.data, tgt_pred.data)
+    assert torch.equal(out_pred.batch_sizes, tgt_pred.batch_sizes)
+    assert torch.equal(out_pred.sorted_indices, tgt_pred.sorted_indices)
+    assert torch.equal(out_pred.unsorted_indices, tgt_pred.unsorted_indices)
+
+
+@given(
+    data=st.data(),
+    lengths=length_lists(),
+    num_tags=num_tags_integers(),
+    num_conjugates=num_tags_integers(),
+)
+def test_crf_decoder_given_crfs(data, lengths, num_tags, num_conjugates):
+    crf_decoder = [CrfDecoder(num_tags=num_tags) for _ in range(num_conjugates)]
+    tgt_crf = [CRF(num_tags=num_tags) for _ in range(num_conjugates)]
+
+    with torch.no_grad():
+        for crf, tgt in zip(crf_decoder, tgt_crf):
+            crf.transitions.data = tgt.transitions[None, None, :, :]
+            crf.start_transitions.data = tgt.start_transitions[None, None, :]
+            crf.end_transitions.data = tgt.end_transitions[None, None, :]
+
+    crf_decoder = ConjugatedCrfDecoder(*crf_decoder)
+
+    emissions = data.draw(
+        conjugated_emissions_packs(
+            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+    tags = data.draw(
+        conjugated_tags_packs(
+            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+
+    padded_emissions, lengths = pad_packed_sequence(emissions, batch_first=False)
+    mask = lengths_to_mask(lengths=lengths, batch_first=False)
+    padded_tags, _ = pad_packed_sequence(tags, batch_first=False)
+
+    instr = build_crf_batched_instr(lengths=lengths)
+
+    our = crf_decoder.fit(emissions=emissions, tags=tags, instr=instr, reduction='none')
+
+    tgt = torch.stack([
+        tgt_crf[index].forward(
+            emissions=padded_emissions[..., index, :],
+            tags=padded_tags[..., index],
+            mask=mask, reduction='none',
+        )
+        for index in range(num_conjugates)
+    ], dim=1)
+
+    assert torch.allclose(our, tgt, rtol=1e-3, atol=1e-3)
+
+    out_grad, = torch.autograd.grad(
+        our, emissions.data, torch.ones_like(our),
+        retain_graph=False, create_graph=False, only_inputs=True,
+    )
+    tgt_grad, = torch.autograd.grad(
+        tgt, emissions.data, torch.ones_like(tgt),
+        retain_graph=False, create_graph=False, only_inputs=True,
+    )
+
+    assert torch.allclose(out_grad, tgt_grad, rtol=1e-3, atol=1e-3)
+
+    out_pred = crf_decoder.decode(emissions=emissions, instr=instr)
+
+    tgt_pred = [
+        pack_sequence([
+            torch.tensor(x, dtype=torch.long)
+            for x in tgt_crf[index].decode(padded_emissions[..., index, :], mask=mask)
+        ], enforce_sorted=False)
+        for index in range(num_conjugates)
+    ]
+    tgt_pred = tgt_pred[0]._replace(data=torch.stack([
+        t.data for t in tgt_pred
+    ], dim=1))
+
+    assert torch.equal(out_pred.data, tgt_pred.data)
+    assert torch.equal(out_pred.batch_sizes, tgt_pred.batch_sizes)
+    assert torch.equal(out_pred.sorted_indices, tgt_pred.sorted_indices)
+    assert torch.equal(out_pred.unsorted_indices, tgt_pred.unsorted_indices)

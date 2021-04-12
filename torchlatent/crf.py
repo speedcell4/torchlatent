@@ -302,7 +302,7 @@ class ConjugatedCrfDecoder(CrfDecoderABC):
             crf_decoder.obtain_parameters(*args, **kwargs)
             for crf_decoder in self.crf_decoders
         ])
-        transitions = torch.stack(transitions, dim=1)
-        start_transitions = torch.stack(start_transitions, dim=1)
-        end_transitions = torch.stack(end_transitions, dim=1)
+        transitions = torch.cat(transitions, dim=1)
+        start_transitions = torch.cat(start_transitions, dim=1)
+        end_transitions = torch.cat(end_transitions, dim=1)
         return transitions, start_transitions, end_transitions
