@@ -6,7 +6,7 @@ from torch import Tensor
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
 from torch.nn import init
-from torch.nn.utils.rnn import PackedSequence
+from torch.nn.utils.rnn import PackedSequence, pack_sequence
 from torchrua import packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
 from torchrua import select_head, select_last, batch_sizes_to_ptr
@@ -81,10 +81,10 @@ def compute_partitions(semiring):
             [b, c]
         """
 
-        assert emissions.data.dim() == 3
-        assert transitions.dim() == 4
-        assert start_transitions.dim() == 3
-        assert end_transitions.dim() == 3
+        assert emissions.data.dim() == 3, f'{emissions.data.size()}'
+        assert transitions.dim() == 4, f'{transitions.size()}'
+        assert start_transitions.dim() == 3, f'{start_transitions.size()}'
+        assert end_transitions.dim() == 3, f'{end_transitions.size()}'
 
         batch_size = emissions.batch_sizes[0].item()
         t2 = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
@@ -272,12 +272,18 @@ class CrfDecoder(CrfDecoderABC):
     def __init__(self, num_tags: int, num_conjugates: int = 1) -> None:
         super(CrfDecoder, self).__init__(num_tags=num_tags, num_conjugates=num_conjugates)
 
-        self.transitions = nn.Parameter(torch.empty(
-            (self.num_conjugates, self.num_tags, self.num_tags)), requires_grad=True)
-        self.start_transitions = nn.Parameter(torch.empty(
-            (self.num_conjugates, self.num_tags,)), requires_grad=True)
-        self.end_transitions = nn.Parameter(torch.empty(
-            (self.num_conjugates, self.num_tags,)), requires_grad=True)
+        self.transitions = nn.Parameter(
+            torch.empty((1, self.num_conjugates, self.num_tags, self.num_tags)),
+            requires_grad=True,
+        )
+        self.start_transitions = nn.Parameter(
+            torch.empty((1, self.num_conjugates, self.num_tags)),
+            requires_grad=True,
+        )
+        self.end_transitions = nn.Parameter(
+            torch.empty((1, self.num_conjugates, self.num_tags)),
+            requires_grad=True,
+        )
 
         self.reset_parameters()
 
@@ -317,3 +323,19 @@ class ConjugatedCrfDecoder(CrfDecoderABC):
         start_transitions = torch.cat(start_transitions, dim=1)
         end_transitions = torch.cat(end_transitions, dim=1)
         return transitions, start_transitions, end_transitions
+
+
+if __name__ == '__main__':
+    emissions = pack_sequence([
+        torch.randn((5, 1, 3), requires_grad=True),
+        torch.randn((2, 1, 3), requires_grad=True),
+        torch.randn((3, 1, 3), requires_grad=True),
+    ], enforce_sorted=False)
+    tags = pack_sequence([
+        torch.randint(0, 3, (5, 1)),
+        torch.randint(0, 3, (2, 1)),
+        torch.randint(0, 3, (3, 1)),
+    ], enforce_sorted=False)
+    decoder = CrfDecoder(num_tags=3)
+    print(decoder.fit(emissions=emissions, tags=tags).size())
+    print(decoder.decode(emissions=emissions).data.size())
