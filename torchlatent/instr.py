@@ -61,19 +61,6 @@ def collate_crf_instr(
     return src.data.to(device=device), instr, batch_dst, batch_sizes, cnt
 
 
-def stack_instr(instr: BatchedInstr, n: int) -> BatchedInstr:
-    src, instr, dst, batch_sizes, num_steps = instr
-    indices = torch.arange(n, dtype=src.dtype, device=src.device)
-
-    src = (src[:, None] * n + indices[None, :]).view(-1)
-    dst = (dst[:, None] * n + indices[None, :]).view(-1)
-    if instr is not None:
-        instr = (instr[:, None, :] * n + indices[None, :, None]).view(-1, 3)
-    batch_sizes = [batch_size * n for batch_size in batch_sizes]
-
-    return src, instr, dst, batch_sizes, num_steps * n
-
-
 def build_crf_batched_instr(lengths: Union[List[int], Tensor],
                             sorted_indices: Tensor = None,
                             device: torch.device = torch.device('cpu')) -> BatchedInstr:
