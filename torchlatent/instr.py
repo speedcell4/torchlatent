@@ -3,30 +3,29 @@ from typing import Tuple, List, Optional, Union
 
 import torch
 from torch import Tensor
-from torch.nn.utils.rnn import pack_sequence, PackedSequence
+from torch.nn.utils.rnn import pack_sequence
 
 Instr = Tuple[Tensor, int, List[Tensor]]
 BatchedInstr = Tuple[Tensor, Optional[Tensor], Tensor, List[int], int]
 
 
 def build_crf_instr(length: int) -> Instr:
-    tgt = length
-    src = inp = list(range(tgt))
+    dst = length
+    indices = list(range(dst))
 
     instr = []
-    while len(inp) > 1:
+    while len(indices) > 1:
         ins = []
         out = []
-        for lhs, rhs in zip(inp[0::2], inp[1::2]):
-            ins.append((lhs, rhs, tgt))
-            out.append(tgt)
-            tgt += 1
-        if len(inp) % 2 == 1:
-            out.append(inp[-1])
-        inp = out
+        for lhs, rhs in zip(indices[0::2], indices[1::2]):
+            ins.append((lhs, rhs, dst))
+            out.append(dst)
+            dst += 1
+        if len(indices) % 2 == 1:
+            out.append(indices[-1])
+        indices = out
         instr.append(torch.tensor(ins, dtype=torch.long))
-    src = torch.tensor(src, dtype=torch.long)
-    dst = tgt
+    src = torch.arange(length, dtype=torch.long)
     return src, dst, instr[::-1]
 
 
