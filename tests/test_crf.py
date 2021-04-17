@@ -346,3 +346,71 @@ def test_crf_decoder_given_crfs(data, lengths, num_tags, num_conjugates):
     assert torch.equal(out_pred.batch_sizes, tgt_pred.batch_sizes)
     assert torch.equal(out_pred.sorted_indices, tgt_pred.sorted_indices)
     assert torch.equal(out_pred.unsorted_indices, tgt_pred.unsorted_indices)
+
+
+@given(
+    data=st.data(),
+    lengths=length_lists(),
+    num_tags=num_tags_integers(),
+)
+def test_compute_log_scores_give_time_wise_transitions(data, lengths, num_tags):
+    emissions_list = []
+    tags_list = []
+    transitions_list = []
+    start_transitions_list = []
+    end_transitions_list = []
+
+    log_scores_list = []
+    grad_list = []
+
+    for length in lengths:
+        emissions = pack_sequence([torch.randn((length, 1, num_tags), requires_grad=True)])
+        tags = pack_sequence([torch.randint(0, num_tags, (length, 1))])
+        transitions = torch.randn((length, 1, num_tags, num_tags), requires_grad=True)
+        start_transitions = torch.randn((length, 1, num_tags), requires_grad=True)
+        end_transitions = torch.randn((length, 1, num_tags), requires_grad=True)
+
+        log_scores = compute_log_scores(
+            emissions=emissions, tags=tags,
+            transitions=transitions,
+            start_transitions=start_transitions,
+            end_transitions=end_transitions,
+        )
+        grad, = torch.autograd.grad(
+            log_scores, emissions.data, torch.ones_like(log_scores),
+        )
+
+        emissions_list.append(emissions)
+        tags_list.append(tags)
+        transitions_list.append(transitions)
+        start_transitions_list.append(start_transitions)
+        end_transitions_list.append(end_transitions)
+        log_scores_list.append(log_scores)
+        grad_list.append(grad)
+
+    out = torch.cat(log_scores_list, dim=0)
+    out_grad = pack_sequence(grad_list, enforce_sorted=False).data
+
+    emissions = pack_sequence([
+        emission.data for emission in emissions_list], enforce_sorted=False)
+    tags = pack_sequence([
+        tag.data for tag in tags_list], enforce_sorted=False)
+    transitions = pack_sequence([
+        transition.data for transition in transitions_list], enforce_sorted=False)
+    start_transitions = pack_sequence([
+        start_transition.data for start_transition in start_transitions_list], enforce_sorted=False)
+    end_transitions = pack_sequence([
+        end_transition.data for end_transition in end_transitions_list], enforce_sorted=False)
+
+    tgt = compute_log_scores(
+        emissions=emissions, tags=tags,
+        transitions=transitions.data,
+        start_transitions=start_transitions.data,
+        end_transitions=end_transitions.data,
+    )
+    tgt_grad, = torch.autograd.grad(
+        tgt, emissions.data, torch.ones_like(tgt),
+    )
+
+    assert torch.allclose(out, tgt, rtol=1e-3, atol=1e-3)
+    assert torch.allclose(out_grad, tgt_grad, rtol=1e-3, atol=1e-3)

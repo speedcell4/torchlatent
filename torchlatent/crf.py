@@ -31,15 +31,15 @@ def compute_log_scores(
         [b, c]
     """
 
-    assert emissions.data.dim() == 3
-    assert tags.data.dim() == 2
-    assert transitions.dim() == 4
-    assert start_transitions.dim() == 3
-    assert end_transitions.dim() == 3
+    assert emissions.data.dim() == 3, f'{emissions.data.size()}'
+    assert tags.data.dim() == 2, f'{tags.data.size()}'
+    assert transitions.dim() == 4, f'{transitions.size()}'
+    assert start_transitions.dim() == 3, f'{start_transitions.size()}'
+    assert end_transitions.dim() == 3, f'{end_transitions.size()}'
 
     batch_ptr, _, _ = batch_sizes_to_ptr(
         batch_sizes=emissions.batch_sizes,
-        sorted_indices=emissions.sorted_indices,
+        sorted_indices=None,
         unsorted_indices=emissions.unsorted_indices,
         total_length=None, device=emissions.data.device,
     )  # [t1]
@@ -51,16 +51,19 @@ def compute_log_scores(
     src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
     dst = tags.data  # [t1, c1]
 
-    emissions = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t1, c1]
+    sorted_emissions = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t1, c1]
 
-    transitions = transitions[t2[:, None], c2[None, :], src, dst]  # [t, c]
-
-    transitions[:batch_size] = start_transitions[
+    sorted_transitions = transitions[t2[:, None], c2[None, :], src, dst]  # [t, c]
+    sorted_transitions[:batch_size] = start_transitions[
         t2[:batch_size, None], c2[None, :], select_head(tags, unsort=False)]  # [b, c]
-    end_transitions = end_transitions[t2[:batch_size, None], c2[None, :], select_last(tags, unsort=True)]  # [b, c]
 
-    scores = log.mul(emissions, transitions)
-    return end_transitions.scatter_add(dim=0, index=batch_ptr[:, None].expand_as(scores), src=scores)
+    scores = log.mul(sorted_emissions, sorted_transitions)
+
+    end_transitions = end_transitions[t2[:batch_size, None], c2[None, :], select_last(tags, unsort=False)]  # [b, c]
+    ans = end_transitions.scatter_add(dim=0, index=batch_ptr[:, None].expand_as(scores), src=scores)
+    if emissions.unsorted_indices is not None:
+        ans = ans[emissions.unsorted_indices]
+    return ans
 
 
 def compute_partitions(semiring):
@@ -323,19 +326,3 @@ class ConjugatedCrfDecoder(CrfDecoderABC):
         start_transitions = torch.cat(start_transitions, dim=1)
         end_transitions = torch.cat(end_transitions, dim=1)
         return transitions, start_transitions, end_transitions
-
-
-if __name__ == '__main__':
-    emissions = pack_sequence([
-        torch.randn((5, 1, 3), requires_grad=True),
-        torch.randn((2, 1, 3), requires_grad=True),
-        torch.randn((3, 1, 3), requires_grad=True),
-    ], enforce_sorted=False)
-    tags = pack_sequence([
-        torch.randint(0, 3, (5, 1)),
-        torch.randint(0, 3, (2, 1)),
-        torch.randint(0, 3, (3, 1)),
-    ], enforce_sorted=False)
-    decoder = CrfDecoder(num_tags=3)
-    print(decoder.fit(emissions=emissions, tags=tags).size())
-    print(decoder.decode(emissions=emissions).data.size())
