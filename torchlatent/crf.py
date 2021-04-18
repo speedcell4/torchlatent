@@ -37,33 +37,36 @@ def compute_log_scores(
     assert start_transitions.dim() == 3, f'{start_transitions.size()}'
     assert end_transitions.dim() == 3, f'{end_transitions.size()}'
 
+    device = transitions.device
     batch_ptr, _, _ = batch_sizes_to_ptr(
-        batch_sizes=emissions.batch_sizes.to(device=emissions.data.device),
-        sorted_indices=None,
-        unsorted_indices=emissions.unsorted_indices,
-        total_length=None, device=emissions.data.device,
+        batch_sizes=emissions.batch_sizes.to(device=device),
+        sorted_indices=None, unsorted_indices=None,
+        total_length=None, device=device,
     )  # [t1]
 
     batch_size = emissions.batch_sizes[0].item()
-    t2 = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
-    c2 = torch.arange(transitions.size(1), device=transitions.device)  # [c2]
+    t2 = torch.arange(transitions.size(0), device=device)  # [t2]
+    c2 = torch.arange(transitions.size(1), device=device)  # [c2]
 
     src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
     dst = tags.data  # [t1, c1]
 
     sorted_emissions = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t1, c1]
 
-    sorted_transitions = transitions[t2[:, None], c2[None, :], src, dst]  # [t, c]
+    sorted_transitions = transitions[
+        t2[:, None], c2[None, :], src, dst]  # [t, c]
     sorted_transitions[:batch_size] = start_transitions[
         t2[:batch_size, None], c2[None, :], select_head(tags, unsort=False)]  # [b, c]
 
     scores = log.mul(sorted_emissions, sorted_transitions)
 
-    end_transitions = end_transitions[t2[:batch_size, None], c2[None, :], select_last(tags, unsort=False)]  # [b, c]
-    ans = end_transitions.scatter_add(dim=0, index=batch_ptr[:, None].expand_as(scores), src=scores)
+    end_transitions = end_transitions[
+        t2[:batch_size, None], c2[None, :], select_last(tags, unsort=False)]  # [b, c]
+    scores = end_transitions.scatter_add(dim=0, index=batch_ptr[:, None].expand_as(scores), src=scores)
+
     if emissions.unsorted_indices is not None:
-        ans = ans[emissions.unsorted_indices]
-    return ans
+        scores = scores[emissions.unsorted_indices]
+    return scores
 
 
 def compute_partitions(semiring):
