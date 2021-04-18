@@ -10,6 +10,14 @@ MAX_NUM_TAGS = 13
 
 
 @st.composite
+def devices(draw):
+    if not torch.cuda.is_available():
+        return torch.device('cpu')
+    else:
+        return torch.device('cuda')
+
+
+@st.composite
 def batch_size_integers(draw, max_batch_size: int = MAX_BATCH_SIZE):
     return draw(st.integers(min_value=1, max_value=max_batch_size))
 
@@ -29,26 +37,13 @@ def num_tags_integers(draw, max_num_tags: int = MAX_NUM_TAGS):
     return draw(st.integers(min_value=1, max_value=max_num_tags))
 
 
-@st.composite
-def emissions_packs(draw, lengths: List[int], num_tags: int):
-    return pack_sequence([
-        torch.randn((length, num_tags), requires_grad=True)
-        for length in lengths
-    ], enforce_sorted=False)
 
-
-@st.composite
-def conjugated_emissions_packs(draw, lengths: List[int], num_tags: int, num_conjugates: int):
-    return pack_sequence([
-        torch.randn((length, num_conjugates, num_tags), requires_grad=True)
-        for length in lengths
-    ], enforce_sorted=False)
 
 
 @st.composite
 def tags_packs(draw, lengths: List[int], num_tags: int):
     return pack_sequence([
-        torch.randint(0, num_tags, (length,))
+        torch.randint(0, num_tags, (length,), device=draw(devices()))
         for length in lengths
     ], enforce_sorted=False)
 
@@ -56,6 +51,6 @@ def tags_packs(draw, lengths: List[int], num_tags: int):
 @st.composite
 def conjugated_tags_packs(draw, lengths: List[int], num_tags: int, num_conjugates: int):
     return pack_sequence([
-        torch.randint(0, num_tags, (length, num_conjugates))
+        torch.randint(0, num_tags, (length, num_conjugates), device=draw(devices()))
         for length in lengths
     ], enforce_sorted=False)

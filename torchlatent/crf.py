@@ -38,7 +38,7 @@ def compute_log_scores(
     assert end_transitions.dim() == 3, f'{end_transitions.size()}'
 
     batch_ptr, _, _ = batch_sizes_to_ptr(
-        batch_sizes=emissions.batch_sizes,
+        batch_sizes=emissions.batch_sizes.to(device=emissions.data.device),
         sorted_indices=None,
         unsorted_indices=emissions.unsorted_indices,
         total_length=None, device=emissions.data.device,

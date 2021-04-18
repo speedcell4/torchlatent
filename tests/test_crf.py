@@ -4,7 +4,7 @@ from torch.nn.utils.rnn import pack_sequence
 from torchcrf import CRF
 from torchrua import pad_packed_sequence, lengths_to_mask
 
-from tests.strategies import length_lists, num_tags_integers, conjugated_emissions_packs, conjugated_tags_packs
+from tests.strategies import length_lists, num_tags_integers, devices
 from torchlatent import CrfDecoder, ConjugatedCrfDecoder
 from torchlatent.crf import compute_log_scores, compute_log_partitions
 from torchlatent.instr import build_crf_batched_instr
@@ -12,20 +12,23 @@ from torchlatent.semiring import log
 
 
 @given(
+    device=devices(),
     data=st.data(),
     lengths=length_lists(),
     num_tags=num_tags_integers(),
     num_conjugates=num_tags_integers(),
 )
-def test_compute_log_scores_given_emissions(data, lengths, num_tags, num_conjugates):
-    crf = CRF(num_tags=num_tags)
+def test_compute_log_scores_given_emissions(device, data, lengths, num_tags, num_conjugates):
+    crf = CRF(num_tags=num_tags).to(device=device)
 
-    emissions = data.draw(
-        conjugated_emissions_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
-    tags = data.draw(
-        conjugated_tags_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+    emissions = pack_sequence([
+        torch.randn((length, num_conjugates, num_tags), requires_grad=True, device=device)
+        for length in lengths
+    ], enforce_sorted=False)
+    tags = pack_sequence([
+        torch.randint(0, num_tags, (length, num_conjugates), device=device)
+        for length in lengths
+    ], enforce_sorted=False)
 
     out = compute_log_scores(
         emissions=emissions,
@@ -36,7 +39,7 @@ def test_compute_log_scores_given_emissions(data, lengths, num_tags, num_conjuga
     )
 
     padded_emissions, lengths = pad_packed_sequence(pack=emissions, batch_first=False)
-    mask = lengths_to_mask(lengths=lengths, batch_first=False)
+    mask = lengths_to_mask(lengths=lengths, batch_first=False).to(device=device)
     padded_tags, _ = pad_packed_sequence(pack=tags, batch_first=False)
 
     tgt = torch.stack([
@@ -59,20 +62,23 @@ def test_compute_log_scores_given_emissions(data, lengths, num_tags, num_conjuga
 
 
 @given(
+    device=devices(),
     data=st.data(),
     lengths=length_lists(),
     num_tags=num_tags_integers(),
     num_conjugates=num_tags_integers(),
 )
-def test_compute_log_scores_given_crfs(data, lengths, num_tags, num_conjugates):
-    crfs = [CRF(num_tags=num_tags) for _ in range(num_conjugates)]
+def test_compute_log_scores_given_crfs(device, data, lengths, num_tags, num_conjugates):
+    crfs = [CRF(num_tags=num_tags).to(device=device) for _ in range(num_conjugates)]
 
-    emissions = data.draw(
-        conjugated_emissions_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
-    tags = data.draw(
-        conjugated_tags_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+    emissions = pack_sequence([
+        torch.randn((length, num_conjugates, num_tags), requires_grad=True, device=device)
+        for length in lengths
+    ], enforce_sorted=False)
+    tags = pack_sequence([
+        torch.randint(0, num_tags, (length, num_conjugates), device=device)
+        for length in lengths
+    ], enforce_sorted=False)
 
     out = compute_log_scores(
         emissions=emissions,
@@ -106,20 +112,22 @@ def test_compute_log_scores_given_crfs(data, lengths, num_tags, num_conjugates):
 
 
 @given(
+    device=devices(),
     data=st.data(),
     lengths=length_lists(),
     num_tags=num_tags_integers(),
     num_conjugates=num_tags_integers(),
 )
-def test_compute_log_partitions_given_emissions(data, lengths, num_tags, num_conjugates):
-    crf = CRF(num_tags=num_tags)
+def test_compute_log_partitions_given_emissions(device, data, lengths, num_tags, num_conjugates):
+    crf = CRF(num_tags=num_tags).to(device=device)
 
-    emissions = data.draw(
-        conjugated_emissions_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+    emissions = pack_sequence([
+        torch.randn((length, num_conjugates, num_tags), requires_grad=True, device=device)
+        for length in lengths
+    ], enforce_sorted=False)
 
     instr = build_crf_batched_instr(
-        lengths=torch.tensor(lengths, dtype=torch.long),
+        lengths=torch.tensor(lengths, dtype=torch.long, device=device),
         sorted_indices=emissions.sorted_indices,
     )
 
@@ -155,20 +163,22 @@ def test_compute_log_partitions_given_emissions(data, lengths, num_tags, num_con
 
 
 @given(
+    device=devices(),
     data=st.data(),
     lengths=length_lists(),
     num_tags=num_tags_integers(),
     num_conjugates=num_tags_integers(),
 )
-def test_compute_log_partitions_given_crfs(data, lengths, num_tags, num_conjugates):
-    crfs = [CRF(num_tags=num_tags) for _ in range(num_conjugates)]
+def test_compute_log_partitions_given_crfs(device, data, lengths, num_tags, num_conjugates):
+    crfs = [CRF(num_tags=num_tags).to(device=device) for _ in range(num_conjugates)]
 
-    emissions = data.draw(
-        conjugated_emissions_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+    emissions = pack_sequence([
+        torch.randn((length, num_conjugates, num_tags), requires_grad=True, device=device)
+        for length in lengths
+    ], enforce_sorted=False)
 
     instr = build_crf_batched_instr(
-        lengths=torch.tensor(lengths, dtype=torch.long),
+        lengths=torch.tensor(lengths, dtype=torch.long, device=device),
         sorted_indices=emissions.sorted_indices,
     )
 
@@ -204,26 +214,29 @@ def test_compute_log_partitions_given_crfs(data, lengths, num_tags, num_conjugat
 
 
 @given(
+    device=devices(),
     data=st.data(),
     lengths=length_lists(),
     num_tags=num_tags_integers(),
     num_conjugates=num_tags_integers(),
 )
-def test_crf_decoder_given_emissions(data, lengths, num_tags, num_conjugates):
-    crf_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=1)
-    tgt_crf = CRF(num_tags=num_tags)
+def test_crf_decoder_given_emissions(device, data, lengths, num_tags, num_conjugates):
+    crf_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=1).to(device=device)
+    tgt_crf = CRF(num_tags=num_tags).to(device=device)
 
     with torch.no_grad():
         crf_decoder.transitions.data = tgt_crf.transitions[None, None, :, :]
         crf_decoder.start_transitions.data = tgt_crf.start_transitions[None, None, :]
         crf_decoder.end_transitions.data = tgt_crf.end_transitions[None, None, :]
 
-    emissions = data.draw(
-        conjugated_emissions_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
-    tags = data.draw(
-        conjugated_tags_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+    emissions = pack_sequence([
+        torch.randn((length, num_conjugates, num_tags), requires_grad=True, device=device)
+        for length in lengths
+    ], enforce_sorted=False)
+    tags = pack_sequence([
+        torch.randint(0, num_tags, (length, num_conjugates), device=device)
+        for length in lengths
+    ], enforce_sorted=False)
 
     padded_emissions, lengths = pad_packed_sequence(emissions, batch_first=False)
     mask = lengths_to_mask(lengths=lengths, batch_first=False)
@@ -259,7 +272,7 @@ def test_crf_decoder_given_emissions(data, lengths, num_tags, num_conjugates):
 
     tgt_pred = [
         pack_sequence([
-            torch.tensor(x, dtype=torch.long)
+            torch.tensor(x, dtype=torch.long, device=device)
             for x in tgt_crf.decode(padded_emissions[..., index, :], mask=mask)
         ], enforce_sorted=False)
         for index in range(num_conjugates)
@@ -275,14 +288,15 @@ def test_crf_decoder_given_emissions(data, lengths, num_tags, num_conjugates):
 
 
 @given(
+    device=devices(),
     data=st.data(),
     lengths=length_lists(),
     num_tags=num_tags_integers(),
     num_conjugates=num_tags_integers(),
 )
-def test_crf_decoder_given_crfs(data, lengths, num_tags, num_conjugates):
-    crf_decoder = [CrfDecoder(num_tags=num_tags) for _ in range(num_conjugates)]
-    tgt_crf = [CRF(num_tags=num_tags) for _ in range(num_conjugates)]
+def test_crf_decoder_given_crfs(device, data, lengths, num_tags, num_conjugates):
+    crf_decoder = [CrfDecoder(num_tags=num_tags).to(device=device) for _ in range(num_conjugates)]
+    tgt_crf = [CRF(num_tags=num_tags).to(device=device) for _ in range(num_conjugates)]
 
     with torch.no_grad():
         for crf, tgt in zip(crf_decoder, tgt_crf):
@@ -292,12 +306,14 @@ def test_crf_decoder_given_crfs(data, lengths, num_tags, num_conjugates):
 
     crf_decoder = ConjugatedCrfDecoder(*crf_decoder)
 
-    emissions = data.draw(
-        conjugated_emissions_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
-    tags = data.draw(
-        conjugated_tags_packs(
-            lengths=lengths, num_tags=num_tags, num_conjugates=num_conjugates))
+    emissions = pack_sequence([
+        torch.randn((length, num_conjugates, num_tags), requires_grad=True, device=device)
+        for length in lengths
+    ], enforce_sorted=False)
+    tags = pack_sequence([
+        torch.randint(0, num_tags, (length, num_conjugates), device=device)
+        for length in lengths
+    ], enforce_sorted=False)
 
     padded_emissions, lengths = pad_packed_sequence(emissions, batch_first=False)
     mask = lengths_to_mask(lengths=lengths, batch_first=False)
@@ -333,7 +349,7 @@ def test_crf_decoder_given_crfs(data, lengths, num_tags, num_conjugates):
 
     tgt_pred = [
         pack_sequence([
-            torch.tensor(x, dtype=torch.long)
+            torch.tensor(x, dtype=torch.long, device=device)
             for x in tgt_crf[index].decode(padded_emissions[..., index, :], mask=mask)
         ], enforce_sorted=False)
         for index in range(num_conjugates)
@@ -349,11 +365,12 @@ def test_crf_decoder_given_crfs(data, lengths, num_tags, num_conjugates):
 
 
 @given(
+    device=devices(),
     data=st.data(),
     lengths=length_lists(),
     num_tags=num_tags_integers(),
 )
-def test_compute_log_scores_give_time_wise_transitions(data, lengths, num_tags):
+def test_compute_log_scores_give_time_wise_transitions(device, data, lengths, num_tags):
     emissions_list = []
     tags_list = []
     transitions_list = []
@@ -364,11 +381,11 @@ def test_compute_log_scores_give_time_wise_transitions(data, lengths, num_tags):
     grad_list = []
 
     for length in lengths:
-        emissions = pack_sequence([torch.randn((length, 1, num_tags), requires_grad=True)])
-        tags = pack_sequence([torch.randint(0, num_tags, (length, 1))])
-        transitions = torch.randn((length, 1, num_tags, num_tags), requires_grad=True)
-        start_transitions = torch.randn((length, 1, num_tags), requires_grad=True)
-        end_transitions = torch.randn((length, 1, num_tags), requires_grad=True)
+        emissions = pack_sequence([torch.randn((length, 1, num_tags), device=device, requires_grad=True)])
+        tags = pack_sequence([torch.randint(0, num_tags, (length, 1), device=device)])
+        transitions = torch.randn((length, 1, num_tags, num_tags), device=device, requires_grad=True)
+        start_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
+        end_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
 
         log_scores = compute_log_scores(
             emissions=emissions, tags=tags,
@@ -417,11 +434,12 @@ def test_compute_log_scores_give_time_wise_transitions(data, lengths, num_tags):
 
 
 @given(
+    device=devices(),
     data=st.data(),
     lengths=length_lists(),
     num_tags=num_tags_integers(),
 )
-def test_compute_log_partitions_give_time_wise_transitions(data, lengths, num_tags):
+def test_compute_log_partitions_give_time_wise_transitions(device, data, lengths, num_tags):
     emissions_list = []
     transitions_list = []
     start_transitions_list = []
@@ -431,11 +449,11 @@ def test_compute_log_partitions_give_time_wise_transitions(data, lengths, num_ta
     grad_list = []
 
     for length in lengths:
-        emissions = pack_sequence([torch.randn((length, 1, num_tags), requires_grad=True)])
-        transitions = torch.randn((length, 1, num_tags, num_tags), requires_grad=True)
-        start_transitions = torch.randn((length, 1, num_tags), requires_grad=True)
-        end_transitions = torch.randn((length, 1, num_tags), requires_grad=True)
-        instr = build_crf_batched_instr([length], None, device=torch.device('cpu'))
+        emissions = pack_sequence([torch.randn((length, 1, num_tags), device=device, requires_grad=True)])
+        transitions = torch.randn((length, 1, num_tags, num_tags), device=device, requires_grad=True)
+        start_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
+        end_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
+        instr = build_crf_batched_instr([length], None, device=device)
 
         log_partitions = compute_log_partitions(
             emissions=emissions, instr=instr,
@@ -467,7 +485,7 @@ def test_compute_log_partitions_give_time_wise_transitions(data, lengths, num_ta
     end_transitions = pack_sequence([
         end_transition.data for end_transition in end_transitions_list], enforce_sorted=False)
 
-    instr = build_crf_batched_instr(torch.tensor(lengths), None, device=torch.device('cpu'))
+    instr = build_crf_batched_instr(torch.tensor(lengths), None, device=device)
     tgt = compute_log_partitions(
         emissions=emissions, instr=instr,
         transitions=transitions.data,
@@ -484,11 +502,12 @@ def test_compute_log_partitions_give_time_wise_transitions(data, lengths, num_ta
 
 
 @given(
+    device=devices(),
     data=st.data(),
     lengths=length_lists(),
     num_tags=num_tags_integers(),
 )
-def test_crf_give_time_wise_transitions(data, lengths, num_tags):
+def test_crf_give_time_wise_transitions(device, data, lengths, num_tags):
     emissions_list = []
     tags_list = []
     transitions_list = []
@@ -500,13 +519,13 @@ def test_crf_give_time_wise_transitions(data, lengths, num_tags):
     pred_list = []
 
     for length in lengths:
-        emissions = pack_sequence([torch.randn((length, 1, num_tags), requires_grad=True)])
-        tags = pack_sequence([torch.randint(0, num_tags, (length, 1))])
-        transitions = torch.randn((length, 1, num_tags, num_tags), requires_grad=True)
-        start_transitions = torch.randn((length, 1, num_tags), requires_grad=True)
-        end_transitions = torch.randn((length, 1, num_tags), requires_grad=True)
+        emissions = pack_sequence([torch.randn((length, 1, num_tags), device=device, requires_grad=True)])
+        tags = pack_sequence([torch.randint(0, num_tags, (length, 1), device=device)])
+        transitions = torch.randn((length, 1, num_tags, num_tags), device=device, requires_grad=True)
+        start_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
+        end_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
 
-        crf = CrfDecoder(num_tags=num_tags)
+        crf = CrfDecoder(num_tags=num_tags).to(device=device)
         with torch.no_grad():
             crf.transitions.data = transitions.data
             crf.start_transitions.data = start_transitions.data
