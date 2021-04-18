@@ -1,253 +1,336 @@
-from typing import Optional, List, Tuple, Union
+from abc import ABCMeta
+from typing import Optional
 
 import torch
 from torch import Tensor
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
-from torch.nn import functional as F
 from torch.nn import init
-from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence
-from torch.nn.utils.rnn import pad_packed_sequence
+from torch.nn.utils.rnn import PackedSequence
+from torchrua import packed_sequence_to_lengths
+from torchrua import roll_packed_sequence
+from torchrua import select_head, select_last, batch_sizes_to_ptr
 
-from torchlatent.functional import build_mask, build_seq_ptr
-from torchlatent.instr import BatchInstr, build_crf_batch_instr
-from torchlatent.semiring import log
-
-
-def obtain_indices(pack: PackedSequence) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
-    data, lengths = pad_packed_sequence(
-        pack, batch_first=True, padding_value=-1,
-    )
-    index = torch.arange(0, lengths.size(0), dtype=torch.long, device=data.device)
-
-    src: Tensor = data[:, 0]
-    dst: Tensor = data[index, lengths - 1]
-
-    lhs: Tensor = pack_padded_sequence(
-        F.pad(data, [1, 0, 0, 0], value=-1),
-        lengths=lengths, batch_first=True, enforce_sorted=False,
-    ).data
-    rhs: Tensor = pack.data
-
-    return src, dst, lhs.clamp_min(0), rhs, lhs == -1
+from torchlatent.instr import BatchedInstr, build_crf_batched_instr
+from torchlatent.semiring import log, max
 
 
 def compute_log_scores(
-        log_potentials: PackedSequence, target: PackedSequence, seq_ptr: PackedSequence,
-        transition: Tensor, start_transition: Tensor, end_transition: Tensor) -> Tensor:
-    src, dst, lhs, rhs, padding_mask = obtain_indices(target)
+        emissions: PackedSequence, tags: PackedSequence,
+        transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
+    """
 
-    e = log_potentials.data.gather(dim=-1, index=target.data[:, None])[:, 0]
-    t = transition[lhs, rhs].masked_fill(padding_mask, log.one)
+    Args:
+        emissions: [t1, c1, n]
+        tags: [t1, c1]
+        transitions: [t2, c2, n, n]
+        start_transitions: [t2, c2, n]
+        end_transitions: [t2, c2, n]
 
-    return (start_transition[src] + end_transition[dst]).scatter_add(dim=0, index=seq_ptr.data, src=log.mul(e, t))
+    Returns:
+        [b, c]
+    """
+
+    assert emissions.data.dim() == 3, f'{emissions.data.size()}'
+    assert tags.data.dim() == 2, f'{tags.data.size()}'
+    assert transitions.dim() == 4, f'{transitions.size()}'
+    assert start_transitions.dim() == 3, f'{start_transitions.size()}'
+    assert end_transitions.dim() == 3, f'{end_transitions.size()}'
+
+    device = transitions.device
+    batch_ptr, _, _ = batch_sizes_to_ptr(
+        batch_sizes=emissions.batch_sizes.to(device=device),
+        sorted_indices=None, unsorted_indices=None,
+        total_length=None, device=device,
+    )  # [t1]
+
+    batch_size = emissions.batch_sizes[0].item()
+    t2 = torch.arange(transitions.size(0), device=device)  # [t2]
+    c2 = torch.arange(transitions.size(1), device=device)  # [c2]
+
+    src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
+    dst = tags.data  # [t1, c1]
+
+    sorted_emissions = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t1, c1]
+
+    sorted_transitions = transitions[
+        t2[:, None], c2[None, :], src, dst]  # [t, c]
+    sorted_transitions[:batch_size] = start_transitions[
+        t2[:batch_size, None], c2[None, :], select_head(tags, unsort=False)]  # [b, c]
+
+    scores = log.mul(sorted_emissions, sorted_transitions)
+
+    end_transitions = end_transitions[
+        t2[:batch_size, None], c2[None, :], select_last(tags, unsort=False)]  # [b, c]
+    scores = end_transitions.scatter_add(dim=0, index=batch_ptr[:, None].expand_as(scores), src=scores)
+
+    if emissions.unsorted_indices is not None:
+        scores = scores[emissions.unsorted_indices]
+    return scores
 
 
-def compute_log_partitions(
-        log_potentials: PackedSequence, instr: BatchInstr,
-        transition: Tensor, start_transition: Tensor, end_transition: Tensor, unit: Tensor) -> Tensor:
-    src, dst, lhs, rhs, padding_mask = obtain_indices(log_potentials._replace(
-        data=torch.arange(log_potentials.data.size(0), dtype=torch.long, device=log_potentials.data.device),
-    ))
+def compute_partitions(semiring):
+    def _compute_partitions_fn(
+            emissions: PackedSequence, instr: BatchedInstr,
+            transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor, unit: Tensor) -> Tensor:
+        """
 
-    start = log.mul(start_transition[None, :], log_potentials.data[src, :])  # [bsz, tag]
-    end = end_transition  # [tag]
+        Args:
+            emissions: [t1, c1, n]
+            instr:
+            transitions: [t2, c2, n, n]
+            start_transitions: [t2, c2, n]
+            end_transitions: [t2, c2, n]
+            unit: [n, n]
 
-    log_partitions = log.mul(transition[None, :, :], log_potentials.data[:, None, :])  # [pln,  tag, tag]
-    log_partitions = torch.where(padding_mask[:, None, None], unit[None, :, :], log_partitions)
+        Returns:
+            [b, c]
+        """
 
-    log_partitions = log.reduce(
-        pack=log_potentials._replace(data=log_partitions), instr=instr,
-    )
-    return log.mv(log.vm(start, log_partitions), end)
+        assert emissions.data.dim() == 3, f'{emissions.data.size()}'
+        assert transitions.dim() == 4, f'{transitions.size()}'
+        assert start_transitions.dim() == 3, f'{start_transitions.size()}'
+        assert end_transitions.dim() == 3, f'{end_transitions.size()}'
+
+        batch_size = emissions.batch_sizes[0].item()
+        t2 = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
+        c2 = torch.arange(transitions.size(1), device=transitions.device)  # [c2]
+
+        scores = log.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
+        scores[:batch_size] = unit[None, None, :, :]
+
+        start_scores = log.mul(  # [t, c, 1, n]
+            start_transitions[t2[:batch_size, None], c2[None, :], None, :],
+            emissions.data[:batch_size, :, None, :],
+        )
+        end_scores = end_transitions[t2[:batch_size, None], c2[None, :], :, None]  # [t, c, n, 1]
+
+        if emissions.unsorted_indices is not None:
+            start_scores = start_scores[emissions.unsorted_indices]
+            if end_scores.size(0) > 1:
+                end_scores = end_scores[emissions.unsorted_indices]
+
+        scores = semiring.tree_reduce(
+            pack=PackedSequence(
+                data=scores,
+                batch_sizes=emissions.batch_sizes,
+                sorted_indices=emissions.sorted_indices,
+                unsorted_indices=emissions.unsorted_indices,
+            ), instr=instr,
+        )
+
+        return semiring.bmm(
+            semiring.bmm(start_scores, scores), end_scores
+        )[..., 0, 0]
+
+    return _compute_partitions_fn
 
 
-def viterbi(log_potentials: Tensor, padding_mask: Tensor, length: Tensor,
-            transition: Tensor, start_transition: Tensor, end_transition: Tensor) -> List[List[int]]:
-    transition = log.mul(transition[None, None, :, :], log_potentials[:, :, None, :])
-    scores = log.mul(start_transition[None, :], log_potentials[0])
-
-    back_pointers = []
-    for i in range(1, length.max().item()):
-        new_scores, back_pointer = torch.max(log.mul(scores[..., None], transition[i]), dim=-2)
-        scores = torch.where(padding_mask[i, ..., None], scores, new_scores)
-        back_pointers.append(back_pointer)
-
-    ret = [torch.argmax(log.mul(scores, end_transition[None, :]), dim=-1, keepdim=True)]
-    for i, back_pointer in reversed(list(enumerate(back_pointers, start=1))):
-        new_cur = back_pointer.gather(dim=-1, index=ret[-1])
-        ret.append(torch.where(padding_mask[i, ..., None], ret[-1], new_cur))
-
-    ret = torch.cat(ret[::-1], dim=1).detach().cpu().tolist()
-    return [ret[i][:l] for i, l in enumerate(length.tolist())]
+compute_log_partitions = compute_partitions(log)
+compute_max_partitions = compute_partitions(max)
 
 
 class CrfDistribution(distributions.Distribution):
-    def __init__(self, log_potentials: PackedSequence, seq_ptr: PackedSequence, instr: BatchInstr,
-                 transition: Tensor, start_transition: Tensor, end_transition: Tensor, unit: Tensor) -> None:
+    def __init__(self, emissions: PackedSequence, instr: BatchedInstr,
+                 transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> None:
         super(CrfDistribution, self).__init__()
-        self.log_potentials = log_potentials
-        self.seq_ptr = seq_ptr
+        self.emissions = emissions
         self.instr = instr
 
-        self.transition = transition
-        self.start_transition = start_transition
-        self.end_transition = end_transition
-        self.unit = unit
+        self.transitions = transitions
+        self.start_transitions = start_transitions
+        self.end_transitions = end_transitions
 
-    def log_prob(self, target: PackedSequence) -> Tensor:
-        return self.log_scores(target) - self.log_partitions
+    def log_prob(self, tags: PackedSequence) -> Tensor:
+        return self.log_scores(tags=tags) - self.log_partitions
 
-    def log_scores(self, target: PackedSequence) -> Tensor:
+    def log_scores(self, tags: PackedSequence) -> Tensor:
         return compute_log_scores(
-            log_potentials=self.log_potentials, target=target, seq_ptr=self.seq_ptr,
-            transition=self.transition, start_transition=self.start_transition,
-            end_transition=self.end_transition,
+            emissions=self.emissions, tags=tags,
+            transitions=self.transitions,
+            start_transitions=self.start_transitions,
+            end_transitions=self.end_transitions,
         )
 
     @lazy_property
     def log_partitions(self) -> Tensor:
         return compute_log_partitions(
-            log_potentials=self.log_potentials, instr=self.instr,
-            transition=self.transition, start_transition=self.start_transition,
-            end_transition=self.end_transition, unit=self.unit,
+            emissions=self.emissions, instr=self.instr,
+            unit=log.fill_unit(self.transitions),
+            transitions=self.transitions,
+            start_transitions=self.start_transitions,
+            end_transitions=self.end_transitions,
         )
 
     @lazy_property
     def marginals(self) -> Tensor:
-        ret, = autograd.grad(
-            self.log_partitions, self.log_potentials.data, torch.ones_like(self.log_partitions),
+        partitions = self.log_partitions
+        grad, = autograd.grad(
+            partitions, self.emissions.data, torch.ones_like(partitions),
             create_graph=True, only_inputs=True, allow_unused=False,
         )
-        return ret
+        return grad
 
     @lazy_property
-    def argmax(self) -> List[List[int]]:
-        log_potentials, length = pad_packed_sequence(self.log_potentials, batch_first=False)
-        padding_mask = build_mask(
-            length=length, padding_mask=True, batch_first=False,
-            device=log_potentials.device,
+    def entropy(self) -> Tensor:
+        marginals = torch.masked_fill(self.marginals, self.marginals == 0, 1.)
+        src = (marginals * marginals.log()).sum(dim=-1).neg()
+        batch_ptr, _, _ = batch_sizes_to_ptr(
+            batch_sizes=self.emissions.batch_sizes,
+            sorted_indices=self.emissions.sorted_indices,
+            unsorted_indices=self.emissions.unsorted_indices,
+            total_length=None, device=self.emissions.data.device,
+        )  # [t1]
+        zeros = torch.zeros(
+            (self.emissions.batch_sizes[0],),
+            dtype=torch.float32, device=self.emissions.data.device,
+        )
+        return torch.scatter_add(zeros, src=src, index=batch_ptr, dim=0)
+
+    @lazy_property
+    def argmax(self) -> PackedSequence:
+        partitions = compute_max_partitions(
+            emissions=self.emissions, instr=self.instr,
+            unit=max.fill_unit(self.transitions),
+            transitions=self.transitions,
+            start_transitions=self.start_transitions,
+            end_transitions=self.end_transitions,
         )
 
-        return viterbi(
-            log_potentials=log_potentials, padding_mask=padding_mask, length=length,
-            transition=self.transition, start_transition=self.start_transition, end_transition=self.end_transition,
+        grad, = torch.autograd.grad(
+            partitions, self.emissions.data, torch.ones_like(partitions),
+            retain_graph=False, create_graph=False, allow_unused=False,
+        )
+        return PackedSequence(
+            data=grad.argmax(dim=-1),
+            batch_sizes=self.emissions.batch_sizes,
+            sorted_indices=self.emissions.sorted_indices,
+            unsorted_indices=self.emissions.unsorted_indices,
         )
 
 
-class CrfDecoderABC(nn.Module):
-    def __init__(self, batch_first: bool) -> None:
+class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
+    def __init__(self, num_tags: int, num_conjugates: int):
         super(CrfDecoderABC, self).__init__()
-        self.batch_first = batch_first
+
+        self.num_tags = num_tags
+        self.num_conjugates = num_conjugates
 
     def reset_parameters(self, bound: float = 0.01) -> None:
         raise NotImplementedError
 
     def extra_repr(self) -> str:
-        return f'batch_first={self.batch_first}'
+        return ', '.join([
+            f'num_tags={self.num_tags}',
+            f'num_conjugates={self.num_conjugates}',
+        ])
 
-    def _validate(self, log_potentials: Union[PackedSequence, Tensor], target: Optional[Union[PackedSequence, Tensor]],
-                  seq_ptr: Optional[PackedSequence], lengths: Optional[Tensor], instr: Optional[BatchInstr]):
-
-        if torch.is_tensor(log_potentials):
-            assert lengths is not None
-
-            log_potentials = pack_padded_sequence(
-                log_potentials, lengths=lengths,
-                batch_first=self.batch_first, enforce_sorted=False,
-            )
-
-        if seq_ptr is None:
-            assert lengths is not None
-
-            seq_ptr = build_seq_ptr(lengths=lengths, device=log_potentials.data.device)
-
+    @staticmethod
+    def _validate(emissions: PackedSequence, tags: Optional[PackedSequence], instr: Optional[BatchedInstr]):
         if instr is None:
-            assert lengths is not None
-
-            instr = build_crf_batch_instr(lengths=lengths, device=log_potentials.data.device)
-
-        if torch.is_tensor(target):
-            assert lengths is not None
-
-            target = pack_padded_sequence(
-                target, lengths=lengths,
-                batch_first=self.batch_first, enforce_sorted=False,
+            lengths = packed_sequence_to_lengths(pack=emissions, unsort=True)
+            instr = build_crf_batched_instr(
+                lengths=lengths, device=emissions.data.device,
+                sorted_indices=emissions.sorted_indices,
             )
 
-        return log_potentials, seq_ptr, instr, target
+        return emissions, tags, instr
 
-    def _obtain_parameters(self, *args, **kwargs) -> Tuple[nn.Parameter, ...]:
-        return self.transition, self.start_transition, self.end_transition, self.unit
+    def obtain_parameters(self, *args, **kwargs):
+        return self.transitions, self.start_transitions, self.end_transitions
 
-    def forward(self, log_potentials: Union[PackedSequence, Tensor], target: Union[PackedSequence, Tensor] = None,
-                seq_ptr: PackedSequence = None, lengths: Tensor = None, instr: BatchInstr = None):
-        log_potentials, seq_ptr, instr, target = self._validate(
-            log_potentials=log_potentials, target=target,
-            seq_ptr=seq_ptr, lengths=lengths, instr=instr,
-        )
-        transition, start_transition, end_transition, unit = self._obtain_parameters(
-            log_potentials=log_potentials, target=target,
-            seq_ptr=seq_ptr, instr=instr,
-        )
+    def forward(self, emissions: PackedSequence, tags: Optional[PackedSequence] = None,
+                instr: Optional[BatchedInstr] = None):
+        emissions, tags, instr = self._validate(emissions=emissions, tags=tags, instr=instr)
+        transitions, start_transitions, end_transitions = self.obtain_parameters(
+            emissions=emissions, tags=tags, instr=instr)
 
         dist = CrfDistribution(
-            log_potentials=log_potentials, seq_ptr=seq_ptr, instr=instr,
-            transition=transition, start_transition=start_transition,
-            end_transition=end_transition, unit=unit,
+            emissions=emissions, instr=instr,
+            transitions=transitions,
+            start_transitions=start_transitions,
+            end_transitions=end_transitions,
         )
 
-        return dist, target
+        return dist, tags
 
-    def fit(self, log_potentials: Union[PackedSequence, Tensor], target: Union[PackedSequence, Tensor],
-            seq_ptr: PackedSequence = None, lengths: Tensor = None, instr: BatchInstr = None) -> List[List[int]]:
-        dist, target = self.forward(
-            log_potentials=log_potentials, target=target,
-            seq_ptr=seq_ptr, lengths=lengths, instr=instr,
-        )
+    def fit(self, emissions: PackedSequence, tags: PackedSequence,
+            instr: Optional[BatchedInstr] = None, reduction: str = 'none') -> Tensor:
+        dist, tags = self(emissions=emissions, tags=tags, instr=instr)
 
-        return dist.log_prob(target)
+        log_prob = dist.log_prob(tags)
 
-    def decode(self, log_potentials: Union[PackedSequence, Tensor],
-               seq_ptr: PackedSequence = None, lengths: Tensor = None, instr: BatchInstr = None) -> List[List[int]]:
-        dist, _ = self.forward(
-            log_potentials=log_potentials, target=None,
-            seq_ptr=seq_ptr, lengths=lengths, instr=instr,
-        )
+        if reduction == 'none':
+            return log_prob
+        if reduction == 'sum':
+            return log_prob.sum()
+        if reduction == 'mean':
+            return log_prob.mean()
+        raise NotImplementedError(f'{reduction} is not supported')
+
+    def decode(self, emissions: PackedSequence, instr: Optional[BatchedInstr] = None) -> PackedSequence:
+        dist, _ = self(emissions=emissions, tags=None, instr=instr)
 
         return dist.argmax
 
-    def marginals(self, log_potentials: Union[PackedSequence, Tensor],
-                  seq_ptr: PackedSequence = None, lengths: Tensor = None, instr: BatchInstr = None) -> Tensor:
-        dist, _ = self.forward(
-            log_potentials=log_potentials, target=None,
-            seq_ptr=seq_ptr, lengths=lengths, instr=instr,
-        )
+    def marginals(self, emissions: PackedSequence, instr: Optional[BatchedInstr] = None) -> Tensor:
+        dist, _ = self(emissions=emissions, tags=None, instr=instr)
 
         return dist.marginals
 
 
 class CrfDecoder(CrfDecoderABC):
-    def __init__(self, num_tags: int, batch_first: bool) -> None:
-        super(CrfDecoder, self).__init__(batch_first=batch_first)
+    def __init__(self, num_tags: int, num_conjugates: int = 1) -> None:
+        super(CrfDecoder, self).__init__(num_tags=num_tags, num_conjugates=num_conjugates)
 
-        self.num_tags = num_tags
-
-        self.transition = nn.Parameter(torch.Tensor(self.num_tags, self.num_tags))
-        self.start_transition = nn.Parameter(torch.Tensor(self.num_tags))
-        self.end_transition = nn.Parameter(torch.Tensor(self.num_tags))
-        self.unit = nn.Parameter(log.build_unit(self.transition), requires_grad=False)
+        self.transitions = nn.Parameter(
+            torch.empty((1, self.num_conjugates, self.num_tags, self.num_tags)),
+            requires_grad=True,
+        )
+        self.start_transitions = nn.Parameter(
+            torch.empty((1, self.num_conjugates, self.num_tags)),
+            requires_grad=True,
+        )
+        self.end_transitions = nn.Parameter(
+            torch.empty((1, self.num_conjugates, self.num_tags)),
+            requires_grad=True,
+        )
 
         self.reset_parameters()
 
     @torch.no_grad()
     def reset_parameters(self, bound: float = 0.01) -> None:
-        init.uniform_(self.transition, -bound, +bound)
-        init.uniform_(self.start_transition, -bound, +bound)
-        init.uniform_(self.end_transition, -bound, +bound)
+        init.uniform_(self.transitions, -bound, +bound)
+        init.uniform_(self.start_transitions, -bound, +bound)
+        init.uniform_(self.end_transitions, -bound, +bound)
 
     def extra_repr(self) -> str:
         return ', '.join([
-            f'num_ner={self.num_tags}',
-            f'batch_first={self.batch_first}',
+            f'num_tags={self.num_tags}',
+            f'num_conjugates={self.num_conjugates}',
         ])
+
+
+class ConjugatedCrfDecoder(CrfDecoderABC):
+    def __init__(self, *crf_decoders: CrfDecoderABC) -> None:
+        super(ConjugatedCrfDecoder, self).__init__(num_tags=crf_decoders[0].num_tags, num_conjugates=0)
+
+        self.crf_decoders = nn.ModuleList(crf_decoders)
+        for crf_decoder in self.crf_decoders:
+            assert self.num_tags == crf_decoder.num_tags
+            self.num_conjugates += crf_decoder.num_conjugates
+
+    @torch.no_grad()
+    def reset_parameters(self, bound: float = 0.01) -> None:
+        for crf_decoder in self.crf_decoders:
+            crf_decoder.reset_parameters(bound=bound)
+
+    def obtain_parameters(self, *args, **kwargs):
+        transitions, start_transitions, end_transitions = zip(*[
+            crf_decoder.obtain_parameters(*args, **kwargs)
+            for crf_decoder in self.crf_decoders
+        ])
+        transitions = torch.cat(transitions, dim=1)
+        start_transitions = torch.cat(start_transitions, dim=1)
+        end_transitions = torch.cat(end_transitions, dim=1)
+        return transitions, start_transitions, end_transitions

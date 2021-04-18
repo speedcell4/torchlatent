@@ -4,7 +4,7 @@ name = 'torchlatent'
 
 setup(
     name=name,
-    version='0.1.0',
+    version='0.2.0',
     packages=[package for package in find_packages() if package.startswith(name)],
     url='https://github.com/speedcell4/torchlatent',
     license='MIT',
@@ -14,15 +14,18 @@ setup(
     python_requires='>=3.7',
     install_requires=[
         'numpy',
+        'torchrua>=0.2.0',
     ],
     extras_require={
         'dev': [
+            'einops',
             'pytest',
             'hypothesis',
             'pytorch-crf',
         ],
         'benchmark': [
             'aku',
+            'tqdm',
             'pytorch-crf',
         ]
     }
