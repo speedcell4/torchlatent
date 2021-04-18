@@ -6,7 +6,7 @@ from torch import Tensor
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
 from torch.nn import init
-from torch.nn.utils.rnn import PackedSequence, pack_sequence
+from torch.nn.utils.rnn import PackedSequence
 from torchrua import packed_sequence_to_lengths
 from torchrua import roll_packed_sequence
 from torchrua import select_head, select_last, batch_sizes_to_ptr
@@ -98,9 +98,14 @@ def compute_partitions(semiring):
 
         start_scores = log.mul(  # [t, c, 1, n]
             start_transitions[t2[:batch_size, None], c2[None, :], None, :],
-            emissions.data[emissions.unsorted_indices, :, None, :],
+            emissions.data[:batch_size, :, None, :],
         )
         end_scores = end_transitions[t2[:batch_size, None], c2[None, :], :, None]  # [t, c, n, 1]
+
+        if emissions.unsorted_indices is not None:
+            start_scores = start_scores[emissions.unsorted_indices]
+            if end_scores.size(0) > 1:
+                end_scores = end_scores[emissions.unsorted_indices]
 
         scores = semiring.tree_reduce(
             pack=PackedSequence(
