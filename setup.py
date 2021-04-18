@@ -14,7 +14,7 @@ setup(
     python_requires='>=3.7',
     install_requires=[
         'numpy',
-        'torchrua',
+        'torchrua>=0.2.0',
     ],
     extras_require={
         'dev': [

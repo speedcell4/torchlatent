@@ -3,30 +3,29 @@ from typing import Tuple, List, Optional, Union
 
 import torch
 from torch import Tensor
-from torch.nn.utils.rnn import pack_sequence, PackedSequence
+from torch.nn.utils.rnn import pack_sequence
 
 Instr = Tuple[Tensor, int, List[Tensor]]
 BatchedInstr = Tuple[Tensor, Optional[Tensor], Tensor, List[int], int]
 
 
 def build_crf_instr(length: int) -> Instr:
-    tgt = length
-    src = inp = list(range(tgt))
+    dst = length
+    indices = list(range(dst))
 
     instr = []
-    while len(inp) > 1:
+    while len(indices) > 1:
         ins = []
         out = []
-        for lhs, rhs in zip(inp[0::2], inp[1::2]):
-            ins.append((lhs, rhs, tgt))
-            out.append(tgt)
-            tgt += 1
-        if len(inp) % 2 == 1:
-            out.append(inp[-1])
-        inp = out
+        for lhs, rhs in zip(indices[0::2], indices[1::2]):
+            ins.append((lhs, rhs, dst))
+            out.append(dst)
+            dst += 1
+        if len(indices) % 2 == 1:
+            out.append(indices[-1])
+        indices = out
         instr.append(torch.tensor(ins, dtype=torch.long))
-    src = torch.tensor(src, dtype=torch.long)
-    dst = tgt
+    src = torch.arange(length, dtype=torch.long)
     return src, dst, instr[::-1]
 
 
@@ -60,27 +59,6 @@ def collate_crf_instr(
         instr = torch.cat(instr, dim=0).to(device=device)
     batch_dst = torch.tensor(batch_dst, dtype=torch.long, device=device)
     return src.data.to(device=device), instr, batch_dst, batch_sizes, cnt
-
-
-def stack_instr(batch_ptr: PackedSequence,
-                instr: BatchedInstr, n: int) -> Tuple[PackedSequence, BatchedInstr]:
-    src, instr, dst, batch_sizes, num_steps = instr
-    indices = torch.arange(n, dtype=src.dtype, device=src.device)
-
-    batch_ptr = PackedSequence(
-        data=(batch_ptr.data[:, None] * n + indices[None, :]).view(-1),
-        batch_sizes=batch_ptr.batch_sizes,
-        sorted_indices=batch_ptr.sorted_indices,
-        unsorted_indices=batch_ptr.unsorted_indices,
-    )
-
-    src = (src[:, None] * n + indices[None, :]).view(-1)
-    dst = (dst[:, None] * n + indices[None, :]).view(-1)
-    if instr is not None:
-        instr = (instr[:, None, :] * n + indices[None, :, None]).view(-1, 3)
-    batch_sizes = [batch_size * n for batch_size in batch_sizes]
-
-    return batch_ptr, (src, instr, dst, batch_sizes, num_steps * n)
 
 
 def build_crf_batched_instr(lengths: Union[List[int], Tensor],

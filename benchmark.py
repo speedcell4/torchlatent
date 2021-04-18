@@ -76,15 +76,15 @@ def check_pack(decoder: CrfDecoder, batched_lengths, num_tags, device):
             with data_timer:
                 emissions, tags = gen_pack(lengths=lengths, num_tag=num_tags, device=device)
             with compile_timer:
-                emissions, tags, batch_ptr, instr = decoder._validate(
-                    emissions, tags, lengths=None, batch_ptr=None, instr=None)
+                emissions, tags, instr = decoder._validate(
+                    emissions, tags, lengths=None, instr=None)
             with forward_timer:
-                loss = decoder.fit(emissions, tags, batch_ptr=batch_ptr, instr=instr).sum()
+                loss = decoder.fit(emissions, tags, instr=instr).sum()
             with backward_timer:
                 decoder.zero_grad()
                 loss.backward()
             with decode_timer:
-                predictions = decoder.decode(emissions, batch_ptr=batch_ptr, instr=instr)
+                predictions = decoder.decode(emissions,  instr=instr)
                 predictions, lengths = pad_packed_sequence(
                     predictions, batch_first=True,
                 )

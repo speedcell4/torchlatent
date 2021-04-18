@@ -79,7 +79,7 @@ class FactorizedCrfDecoderABC(CrfDecoderABC):
         init.uniform_(self.sem_start_transitions, -bound, +bound)
         init.uniform_(self.sem_end_transitions, -bound, +bound)
 
-    def _obtain_parameters(self, *args, **kwargs):
+    def obtain_parameters(self, *args, **kwargs):
         syn_transitions = self.syn_transitions[self.syn[:, None], self.syn[None, :]]
         syn_start_transitions = self.syn_start_transitions[self.syn]
         syn_end_transitions = self.syn_end_transitions[self.syn]
