@@ -3,10 +3,8 @@ from typing import Tuple, Callable, List
 
 import torch
 from torch import Tensor
-from torch import nn
-from torch.nn import init
 
-from torchlatent import CrfDecoderABC
+from torchlatent import CrfDecoderABC, CrfDecoder
 from torchlatent.functional import logsumexp
 
 logger = getLogger(__name__)
@@ -52,41 +50,33 @@ class FactorizedCrfDecoderABC(CrfDecoderABC):
         return FactorizedCrfDecoderABC(syn_mapping=syn_mapping, sem_mapping=sem_mapping)
 
     def __init__(self, syn_mapping: Tensor, sem_mapping: Tensor) -> None:
-        super(FactorizedCrfDecoderABC, self).__init__(num_packs=None)
+        super(FactorizedCrfDecoderABC, self).__init__(num_tags=syn_mapping.size(), num_conjugates=1)
 
         num_syn = syn_mapping.max().item() + 1
         num_sem = sem_mapping.max().item() + 1
 
-        self.syn_transitions = nn.Parameter(torch.empty((num_syn, num_syn), requires_grad=True))
-        self.syn_start_transitions = nn.Parameter(torch.empty((num_syn,), requires_grad=True))
-        self.syn_end_transitions = nn.Parameter(torch.empty((num_syn,), requires_grad=True))
-
-        self.sem_transitions = nn.Parameter(torch.empty((num_sem, num_sem), requires_grad=True))
-        self.sem_start_transitions = nn.Parameter(torch.empty((num_sem,), requires_grad=True))
-        self.sem_end_transitions = nn.Parameter(torch.empty((num_sem,), requires_grad=True))
+        self.syn_crf = CrfDecoder(num_tags=num_syn)
+        self.sem_crf = CrfDecoder(num_tags=num_sem)
 
         self.register_buffer('syn', syn_mapping)
         self.register_buffer('sem', sem_mapping)
 
-        self.reset_parameters()
-
     def reset_parameters(self, bound: float = 0.01) -> None:
-        init.uniform_(self.syn_transitions, -bound, +bound)
-        init.uniform_(self.syn_start_transitions, -bound, +bound)
-        init.uniform_(self.syn_end_transitions, -bound, +bound)
-
-        init.uniform_(self.sem_transitions, -bound, +bound)
-        init.uniform_(self.sem_start_transitions, -bound, +bound)
-        init.uniform_(self.sem_end_transitions, -bound, +bound)
+        self.syn_crf.reset_parameters(bound=bound)
+        self.sem_crf.reset_parameters(bound=bound)
 
     def obtain_parameters(self, *args, **kwargs):
-        syn_transitions = self.syn_transitions[self.syn[:, None], self.syn[None, :]]
-        syn_start_transitions = self.syn_start_transitions[self.syn]
-        syn_end_transitions = self.syn_end_transitions[self.syn]
+        syn_transitions, syn_start_transitions, syn_end_transitions = \
+            self.syn_crf.obtain_parameters(*args, **kwargs)
+        syn_transitions = syn_transitions[..., self.syn[:, None], self.syn[None, :]]
+        syn_start_transitions = syn_start_transitions[..., self.syn]
+        syn_end_transitions = syn_end_transitions[..., self.syn]
 
-        sem_transitions = self.sem_transitions[self.sem[:, None], self.sem[None, :]]
-        sem_start_transitions = self.sem_start_transitions[self.sem]
-        sem_end_transitions = self.sem_end_transitions[self.sem]
+        sem_transitions, sem_start_transitions, sem_end_transitions = \
+            self.sem_crf.obtain_parameters(*args, **kwargs)
+        sem_transitions = sem_transitions[..., self.sem[:, None], self.sem[None, :]]
+        sem_start_transitions = sem_start_transitions[..., self.sem]
+        sem_end_transitions = sem_end_transitions[..., self.sem]
 
         transitions = torch.stack([syn_transitions, sem_transitions], dim=-1)
         start_transitions = torch.stack([syn_start_transitions, sem_start_transitions], dim=-1)
