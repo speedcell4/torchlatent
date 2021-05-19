@@ -5,10 +5,10 @@ import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import init
-from torch.nn.utils.rnn import PackedSequence, pack_sequence
+from torch.nn.utils.rnn import PackedSequence
 from torchrua import reversed_indices, select_last
 
-from torchlatent.crf import compute_log_scores, CrfDecoder
+from torchlatent.crf import compute_log_scores
 from torchlatent.instr import BatchedInstr
 from torchlatent.semiring import log, max
 
@@ -57,27 +57,6 @@ def scan_scores(semiring):
 
 
 scan_log_scores = scan_scores(log)
-scan_max_scores = scan_scores(max)
-
-
-def compute_partitions(semiring, scan_semi_scores):
-    def _compute_partitions(
-            emissions: PackedSequence, transitions: Tensor,
-            start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
-        scores = scan_semi_scores(
-            emissions._replace(data=emissions.data),
-            torch.arange(emissions.data.size(0)),
-            transitions,
-            start_transitions,
-        )
-        scores = select_last(emissions._replace(data=scores), unsort=True)
-        return semiring.bmm(scores[:, :, None, :], end_transitions[..., None])[..., 0, 0]
-
-    return _compute_partitions
-
-
-scan_log_partitions = compute_partitions(semiring=log, scan_semi_scores=scan_log_scores)
-scan_max_partitions = compute_partitions(semiring=max, scan_semi_scores=scan_max_scores)
 
 
 def compute_marginals(semiring, scan_semi_scores):
@@ -105,6 +84,61 @@ def compute_marginals(semiring, scan_semi_scores):
 
 
 compute_log_marginals = compute_marginals(log, scan_log_scores)
+
+
+def scan_partitions(semiring):
+    def _scan_partitions(emissions: PackedSequence, transitions: Tensor,
+                         start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
+        """
+
+        Args:
+            emissions: [t1, c1, n]
+            indices: [t1]
+            transitions: [t2, c2, n, n]
+            start_transitions: [t2, c2, n]
+            end_transitions: [t2, c2, n]
+
+        Returns:
+            [t, c, n]
+        """
+
+        batch_size = emissions.batch_sizes[0].item()
+
+        tc_size = torch.broadcast_shapes(
+            emissions.data.size()[:2],
+            transitions.size()[:2],
+        )
+
+        data = torch.empty(
+            (*tc_size, 1, emissions.data.size()[-1]),
+            dtype=emissions.data.dtype, device=emissions.data.device, requires_grad=False)
+        indices = torch.arange(data.size()[0], dtype=torch.long, device=data.device)
+
+        data[indices[:batch_size]] = semiring.mul(
+            start_transitions[:, :, None, :],
+            emissions.data[:batch_size, :, None, :],
+        )
+
+        start, end = 0, batch_size
+        for batch_size in emissions.batch_sizes.detach().cpu().tolist()[1:]:
+            last_start, last_end, start, end = start, start + batch_size, end, end + batch_size
+            data[indices[start:end]] = semiring.bmm(
+                data[indices[last_start:last_end]],
+                semiring.mul(
+                    transitions[:batch_size],
+                    emissions.data[indices[start:end], :, None, :],
+                ),
+            )
+
+        data = select_last(emissions._replace(data=data), unsort=True)
+        ans = semiring.bmm(data, end_transitions[..., None])
+        return ans[..., 0, 0]
+
+    return _scan_partitions
+
+
+scan_log_partitions = scan_partitions(log)
+scan_max_partitions = scan_partitions(max)
 
 
 class CrfDecoderScanABC(nn.Module, metaclass=ABCMeta):
@@ -226,28 +260,3 @@ class CrfDecoderScan(CrfDecoderScanABC):
             f'num_tags={self.num_tags}',
             f'num_conjugates={self.num_conjugates}',
         ])
-
-
-if __name__ == '__main__':
-    emissions = pack_sequence([
-        torch.randn((3, 1, 5), requires_grad=True),
-        torch.randn((2, 1, 5), requires_grad=True),
-        torch.randn((5, 1, 5), requires_grad=True),
-    ], enforce_sorted=False)
-
-    tags = pack_sequence([
-        torch.randint(0, 5, (3, 1)),
-        torch.randint(0, 5, (2, 1)),
-        torch.randint(0, 5, (5, 1)),
-    ], enforce_sorted=False)
-
-    crf1 = CrfDecoder(num_tags=5, num_conjugates=1)
-    crf2 = CrfDecoderScan(num_tags=5, num_conjugates=1)
-
-    with torch.no_grad():
-        crf2.transitions.data[:] = crf1.transitions.data[:]
-        crf2.start_transitions.data[:] = crf1.start_transitions.data[:]
-        crf2.end_transitions.data[:] = crf1.end_transitions.data[:]
-
-    print(crf1.fit(emissions=emissions, tags=tags))
-    print(crf2.fit(emissions=emissions, tags=tags))
