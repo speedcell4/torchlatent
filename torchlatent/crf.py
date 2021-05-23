@@ -46,8 +46,8 @@ def compute_log_scores(
     )  # [t1]
 
     batch_size = emissions.batch_sizes[0].item()
-    t2 = torch.arange(transitions.size(0), device=device)  # [t2]
-    c2 = torch.arange(transitions.size(1), device=device)  # [c2]
+    t2 = torch.arange(transitions.size()[0], device=device)  # [t2]
+    c2 = torch.arange(transitions.size()[1], device=device)  # [c2]
 
     src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
     dst = tags.data  # [t1, c1]
@@ -96,8 +96,8 @@ def compute_partitions(semiring):
         assert end_transitions.dim() == 3, f'{end_transitions.size()}'
 
         batch_size = emissions.batch_sizes[0].item()
-        t2 = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
-        c2 = torch.arange(transitions.size(1), device=transitions.device)  # [c2]
+        t2 = torch.arange(transitions.size()[0], device=transitions.device)  # [t2]
+        c2 = torch.arange(transitions.size()[1], device=transitions.device)  # [c2]
 
         scores = log.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
         scores[:batch_size] = unit[None, None, :, :]
