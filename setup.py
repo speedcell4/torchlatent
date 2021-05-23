@@ -15,6 +15,7 @@ setup(
     install_requires=[
         'numpy',
         'torchrua>=0.2.0',
+        'torch-scatter',
     ],
     extras_require={
         'dev': [
