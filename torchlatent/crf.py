@@ -2,6 +2,7 @@ from abc import ABCMeta
 from typing import Optional
 
 import torch
+import torch_scatter
 from torch import Tensor
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
@@ -45,8 +46,8 @@ def compute_log_scores(
     )  # [t1]
 
     batch_size = emissions.batch_sizes[0].item()
-    t2 = torch.arange(transitions.size(0), device=device)  # [t2]
-    c2 = torch.arange(transitions.size(1), device=device)  # [c2]
+    t2 = torch.arange(transitions.size()[0], device=device)  # [t2]
+    c2 = torch.arange(transitions.size()[1], device=device)  # [c2]
 
     src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
     dst = tags.data  # [t1, c1]
@@ -59,10 +60,12 @@ def compute_log_scores(
         t2[:batch_size, None], c2[None, :], select_head(tags, unsort=False)]  # [b, c]
 
     scores = log.mul(sorted_emissions, sorted_transitions)
+    scores = torch_scatter.scatter_add(scores, index=batch_ptr[:, None], dim=0)
 
     end_transitions = end_transitions[
         t2[:batch_size, None], c2[None, :], select_last(tags, unsort=False)]  # [b, c]
-    scores = end_transitions.scatter_add(dim=0, index=batch_ptr[:, None].expand_as(scores), src=scores)
+
+    scores = log.mul(scores, end_transitions)
 
     if emissions.unsorted_indices is not None:
         scores = scores[emissions.unsorted_indices]
@@ -93,8 +96,8 @@ def compute_partitions(semiring):
         assert end_transitions.dim() == 3, f'{end_transitions.size()}'
 
         batch_size = emissions.batch_sizes[0].item()
-        t2 = torch.arange(transitions.size(0), device=transitions.device)  # [t2]
-        c2 = torch.arange(transitions.size(1), device=transitions.device)  # [c2]
+        t2 = torch.arange(transitions.size()[0], device=transitions.device)  # [t2]
+        c2 = torch.arange(transitions.size()[1], device=transitions.device)  # [c2]
 
         scores = log.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
         scores[:batch_size] = unit[None, None, :, :]
@@ -181,11 +184,7 @@ class CrfDistribution(distributions.Distribution):
             unsorted_indices=self.emissions.unsorted_indices,
             total_length=None, device=self.emissions.data.device,
         )  # [t1]
-        zeros = torch.zeros(
-            (self.emissions.batch_sizes[0],),
-            dtype=torch.float32, device=self.emissions.data.device,
-        )
-        return torch.scatter_add(zeros, src=src, index=batch_ptr, dim=0)
+        return torch_scatter.scatter_add(src=src, index=batch_ptr, dim=0)
 
     @lazy_property
     def argmax(self) -> PackedSequence:
