@@ -2,7 +2,6 @@ from abc import ABCMeta
 from typing import Optional
 
 import torch
-import torch_scatter
 from torch import Tensor
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
@@ -14,58 +13,46 @@ from torchrua import select_head, select_last, batch_sizes_to_ptr
 
 from torchlatent.instr import BatchedInstr, build_crf_batched_instr
 from torchlatent.semiring import log, max
+from torchlatent.utils import broadcast_packed_sequences
 
 
 def compute_log_scores(
         emissions: PackedSequence, tags: PackedSequence,
         transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
-    """
-
-    Args:
-        emissions: [t1, c1, n]
-        tags: [t1, c1]
-        transitions: [t2, c2, n, n]
-        start_transitions: [t2, c2, n]
-        end_transitions: [t2, c2, n]
-
-    Returns:
-        [b, c]
-    """
-
-    assert emissions.data.dim() == 3, f'{emissions.data.size()}'
-    assert tags.data.dim() == 2, f'{tags.data.size()}'
-    assert transitions.dim() == 4, f'{transitions.size()}'
-    assert start_transitions.dim() == 3, f'{start_transitions.size()}'
-    assert end_transitions.dim() == 3, f'{end_transitions.size()}'
+    emissions, tags, transitions, start_transitions, end_transitions, (t, c, n, h) = broadcast_packed_sequences(
+        emissions=emissions, tags=tags,
+        transitions=transitions,
+        start_transitions=start_transitions,
+        end_transitions=end_transitions,
+    )
 
     device = transitions.device
     batch_ptr, _, _ = batch_sizes_to_ptr(
         batch_sizes=emissions.batch_sizes.to(device=device),
-        sorted_indices=None, unsorted_indices=None,
+        sorted_indices=None,
+        unsorted_indices=None,
         total_length=None, device=device,
-    )  # [t1]
+    )  # [t]
 
-    batch_size = emissions.batch_sizes[0].item()
-    t2 = torch.arange(transitions.size()[0], device=device)  # [t2]
-    c2 = torch.arange(transitions.size()[1], device=device)  # [c2]
+    tidx = torch.arange(t, device=device)  # [t]
+    cidx = torch.arange(c, device=device)  # [c]
+    head = select_head(tags, unsort=False)  # [h, c]
+    tail = select_last(tags, unsort=False)  # [h, c]
 
-    src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
-    dst = tags.data  # [t1, c1]
+    src = roll_packed_sequence(tags, offset=1).data  # [t, c]
+    dst = tags.data  # [t, c]
 
-    sorted_emissions = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t1, c1]
+    scores = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t, c]
 
-    sorted_transitions = transitions[
-        t2[:, None], c2[None, :], src, dst]  # [t, c]
-    sorted_transitions[:batch_size] = start_transitions[
-        t2[:batch_size, None], c2[None, :], select_head(tags, unsort=False)]  # [b, c]
+    sorted_transitions = transitions[tidx[:, None], cidx[None, :], src, dst]  # [t, c]
+    sorted_transitions[:h] = start_transitions[tidx[:h, None], cidx[None, :], head]  # [b, c]
 
-    scores = log.mul(sorted_emissions, sorted_transitions)
-    scores = torch_scatter.scatter_add(scores, index=batch_ptr[:, None], dim=0)
-
-    end_transitions = end_transitions[
-        t2[:batch_size, None], c2[None, :], select_last(tags, unsort=False)]  # [b, c]
-
-    scores = log.mul(scores, end_transitions)
+    scores = log.mul(scores, sorted_transitions)
+    scores = torch.scatter_add(
+        end_transitions[tidx[:h, None], cidx[None, :], tail],
+        index=batch_ptr[:, None].expand((t, c)),
+        dim=0, src=scores,
+    )
 
     if emissions.unsorted_indices is not None:
         scores = scores[emissions.unsorted_indices]
@@ -76,43 +63,19 @@ def compute_partitions(semiring):
     def _compute_partitions_fn(
             emissions: PackedSequence, instr: BatchedInstr,
             transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor, unit: Tensor) -> Tensor:
-        """
+        emissions, _, transitions, start_transitions, end_transitions, (t, c, n, h) = broadcast_packed_sequences(
+            emissions=emissions, tags=None,
+            transitions=transitions,
+            start_transitions=start_transitions,
+            end_transitions=end_transitions,
+        )
 
-        Args:
-            emissions: [t1, c1, n]
-            instr:
-            transitions: [t2, c2, n, n]
-            start_transitions: [t2, c2, n]
-            end_transitions: [t2, c2, n]
-            unit: [n, n]
-
-        Returns:
-            [b, c]
-        """
-
-        assert emissions.data.dim() == 3, f'{emissions.data.size()}'
-        assert transitions.dim() == 4, f'{transitions.size()}'
-        assert start_transitions.dim() == 3, f'{start_transitions.size()}'
-        assert end_transitions.dim() == 3, f'{end_transitions.size()}'
-
-        batch_size = emissions.batch_sizes[0].item()
-        t2 = torch.arange(transitions.size()[0], device=transitions.device)  # [t2]
-        c2 = torch.arange(transitions.size()[1], device=transitions.device)  # [c2]
+        tidx = torch.arange(t, device=transitions.device)  # [t]
+        cidx = torch.arange(c, device=transitions.device)  # [c]
+        hidx = tidx if emissions.unsorted_indices is None else emissions.unsorted_indices  # [h]
 
         scores = log.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
-        scores[:batch_size] = unit[None, None, :, :]
-
-        start_scores = log.mul(  # [t, c, 1, n]
-            start_transitions[t2[:batch_size, None], c2[None, :], None, :],
-            emissions.data[:batch_size, :, None, :],
-        )
-        end_scores = end_transitions[t2[:batch_size, None], c2[None, :], :, None]  # [t, c, n, 1]
-
-        if emissions.unsorted_indices is not None:
-            start_scores = start_scores[emissions.unsorted_indices]
-            if end_scores.size(0) > 1:
-                end_scores = end_scores[emissions.unsorted_indices]
-
+        scores[:h] = unit[None, None, :, :]
         scores = semiring.tree_reduce(
             pack=PackedSequence(
                 data=scores,
@@ -121,6 +84,12 @@ def compute_partitions(semiring):
                 unsorted_indices=emissions.unsorted_indices,
             ), instr=instr,
         )
+
+        start_scores = log.mul(  # [t, c, 1, n]
+            start_transitions[hidx[:, None], cidx[None, :], None, :],
+            emissions.data[hidx, :, None, :],
+        )
+        end_scores = end_transitions[hidx[:, None], cidx[None, :], :, None]  # [t, c, n, 1]
 
         return semiring.bmm(
             semiring.bmm(start_scores, scores), end_scores
@@ -173,18 +142,6 @@ class CrfDistribution(distributions.Distribution):
             create_graph=True, only_inputs=True, allow_unused=False,
         )
         return grad
-
-    @lazy_property
-    def entropy(self) -> Tensor:
-        marginals = torch.masked_fill(self.marginals, self.marginals == 0, 1.)
-        src = (marginals * marginals.log()).sum(dim=-1).neg()
-        batch_ptr, _, _ = batch_sizes_to_ptr(
-            batch_sizes=self.emissions.batch_sizes,
-            sorted_indices=self.emissions.sorted_indices,
-            unsorted_indices=self.emissions.unsorted_indices,
-            total_length=None, device=self.emissions.data.device,
-        )  # [t1]
-        return torch_scatter.scatter_add(src=src, index=batch_ptr, dim=0)
 
     @lazy_property
     def argmax(self) -> PackedSequence:

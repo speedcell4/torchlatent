@@ -4,7 +4,7 @@ name = 'torchlatent'
 
 setup(
     name=name,
-    version='0.3.0',
+    version='0.3.1',
     packages=[package for package in find_packages() if package.startswith(name)],
     url='https://github.com/speedcell4/torchlatent',
     license='MIT',
@@ -15,7 +15,6 @@ setup(
     install_requires=[
         'numpy',
         'torchrua>=0.2.0',
-        'torch-scatter',
     ],
     extras_require={
         'dev': [
