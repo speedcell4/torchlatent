@@ -2,7 +2,6 @@ from abc import ABCMeta
 from typing import Optional
 
 import torch
-import torch_scatter
 from torch import Tensor
 from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
@@ -30,7 +29,8 @@ def compute_log_scores(
     device = transitions.device
     batch_ptr, _, _ = batch_sizes_to_ptr(
         batch_sizes=emissions.batch_sizes.to(device=device),
-        sorted_indices=None, unsorted_indices=None,
+        sorted_indices=None,
+        unsorted_indices=None,
         total_length=None, device=device,
     )  # [t]
 
@@ -48,8 +48,11 @@ def compute_log_scores(
     sorted_transitions[:h] = start_transitions[tidx[:h, None], cidx[None, :], head]  # [b, c]
 
     scores = log.mul(scores, sorted_transitions)
-    scores = torch_scatter.scatter_add(scores, index=batch_ptr[:, None], dim=0)
-    scores = log.mul(scores, end_transitions[tidx[:h, None], cidx[None, :], tail])
+    scores = torch.scatter_add(
+        end_transitions[tidx[:h, None], cidx[None, :], tail],
+        index=batch_ptr[:, None].expand((t, c)),
+        dim=0, src=scores,
+    )
 
     if emissions.unsorted_indices is not None:
         scores = scores[emissions.unsorted_indices]
@@ -139,18 +142,6 @@ class CrfDistribution(distributions.Distribution):
             create_graph=True, only_inputs=True, allow_unused=False,
         )
         return grad
-
-    @lazy_property
-    def entropy(self) -> Tensor:
-        marginals = torch.masked_fill(self.marginals, self.marginals == 0, 1.)
-        src = (marginals * marginals.log()).sum(dim=-1).neg()
-        batch_ptr, _, _ = batch_sizes_to_ptr(
-            batch_sizes=self.emissions.batch_sizes,
-            sorted_indices=self.emissions.sorted_indices,
-            unsorted_indices=self.emissions.unsorted_indices,
-            total_length=None, device=self.emissions.data.device,
-        )  # [t1]
-        return torch_scatter.scatter_add(src=src, index=batch_ptr, dim=0)
 
     @lazy_property
     def argmax(self) -> PackedSequence:
