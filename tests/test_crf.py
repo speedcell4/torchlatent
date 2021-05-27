@@ -39,7 +39,7 @@ def test_compute_log_scores_given_emissions(device, data, lengths, num_tags, num
     )
 
     padded_emissions, lengths = pad_packed_sequence(pack=emissions, batch_first=False)
-    mask = lengths_to_mask(lengths=lengths, batch_first=False).to(device=device)
+    mask = lengths_to_mask(lengths=lengths, batch_first=False, device=device)
     padded_tags, _ = pad_packed_sequence(pack=tags, batch_first=False)
 
     tgt = torch.stack([
@@ -47,18 +47,18 @@ def test_compute_log_scores_given_emissions(device, data, lengths, num_tags, num
         for index in range(num_conjugates)
     ], dim=1)
 
-    assert torch.allclose(out, tgt, rtol=1e-3, atol=1e-3)
+    assert torch.allclose(out, tgt, rtol=1e-3, atol=1e-3), f'{out} != {tgt}'
 
     out_grad, = torch.autograd.grad(
         out, emissions.data, torch.ones_like(out),
-        retain_graph=False, create_graph=False, only_inputs=True,
+        create_graph=False, only_inputs=True, allow_unused=False,
     )
     tgt_grad, = torch.autograd.grad(
         tgt, emissions.data, torch.ones_like(tgt),
-        retain_graph=False, create_graph=False, only_inputs=True,
+        create_graph=False, only_inputs=True, allow_unused=False,
     )
 
-    assert torch.allclose(out_grad, tgt_grad, rtol=1e-3, atol=1e-3)
+    assert torch.allclose(out_grad, tgt_grad, rtol=1e-3, atol=1e-3), f'{out_grad} != {tgt_grad}'
 
 
 @given(
@@ -89,7 +89,7 @@ def test_compute_log_scores_given_crfs(device, data, lengths, num_tags, num_conj
     )
 
     padded_emissions, lengths = pad_packed_sequence(pack=emissions, batch_first=False)
-    mask = lengths_to_mask(lengths=lengths, batch_first=False)
+    mask = lengths_to_mask(lengths=lengths, batch_first=False, device=device)
     padded_tags, _ = pad_packed_sequence(pack=tags, batch_first=False)
 
     tgt = torch.stack([
@@ -141,7 +141,7 @@ def test_compute_log_partitions_given_emissions(device, data, lengths, num_tags,
     )
 
     padded_emissions, lengths = pad_packed_sequence(pack=emissions, batch_first=False)
-    mask = lengths_to_mask(lengths=lengths, batch_first=False)
+    mask = lengths_to_mask(lengths=lengths, batch_first=False, device=device)
 
     tgt = torch.stack([
         crf._compute_normalizer(padded_emissions[..., index, :], mask)
@@ -192,7 +192,7 @@ def test_compute_log_partitions_given_crfs(device, data, lengths, num_tags, num_
     )
 
     padded_emissions, lengths = pad_packed_sequence(pack=emissions, batch_first=False)
-    mask = lengths_to_mask(lengths=lengths, batch_first=False)
+    mask = lengths_to_mask(lengths=lengths, batch_first=False, device=device)
 
     tgt = torch.stack([
         crfs[index]._compute_normalizer(padded_emissions[..., index, :], mask)
@@ -239,7 +239,7 @@ def test_crf_decoder_given_emissions(device, data, lengths, num_tags, num_conjug
     ], enforce_sorted=False)
 
     padded_emissions, lengths = pad_packed_sequence(emissions, batch_first=False)
-    mask = lengths_to_mask(lengths=lengths, batch_first=False)
+    mask = lengths_to_mask(lengths=lengths, batch_first=False, device=device)
     padded_tags, _ = pad_packed_sequence(tags, batch_first=False)
 
     instr = build_crf_batched_instr(lengths=lengths)
@@ -316,7 +316,7 @@ def test_crf_decoder_given_crfs(device, data, lengths, num_tags, num_conjugates)
     ], enforce_sorted=False)
 
     padded_emissions, lengths = pad_packed_sequence(emissions, batch_first=False)
-    mask = lengths_to_mask(lengths=lengths, batch_first=False)
+    mask = lengths_to_mask(lengths=lengths, batch_first=False, device=device)
     padded_tags, _ = pad_packed_sequence(tags, batch_first=False)
 
     instr = build_crf_batched_instr(lengths=lengths)
