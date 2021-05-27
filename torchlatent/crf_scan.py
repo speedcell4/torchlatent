@@ -49,7 +49,7 @@ def scan_scores(semiring):
                     data[indices[last_start:last_end]],
                     emissions.data[indices[last_start:last_end], :, None],
                 ),
-                transitions[:h],
+                transitions[indices[start:end]],
             )
 
         return data[..., 0, :]
@@ -126,7 +126,7 @@ def scan_partitions(semiring):
             data[indices[start:end]] = semiring.bmm(
                 data[indices[last_start:last_end]],
                 semiring.mul(
-                    transitions[:h],
+                    transitions[indices[start:end]],
                     emissions.data[indices[start:end], :, None, :],
                 ),
             )
