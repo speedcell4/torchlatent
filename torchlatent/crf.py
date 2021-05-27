@@ -28,7 +28,6 @@ def broadcast_packed_sequences(
             end_transitions: [h2, c2, n]
     """
     assert emissions.data.dim() == 3, f'{emissions.data.size()}'
-    assert tags.data.dim() == 2, f'{tags.data.size()}'
     assert transitions.dim() == 4, f'{transitions.size()}'
     assert start_transitions.dim() == 3, f'{start_transitions.size()}'
     assert end_transitions.dim() == 3, f'{end_transitions.size()}'
@@ -42,6 +41,8 @@ def broadcast_packed_sequences(
             transitions.size()[:2],
         )
     else:
+        assert tags.data.dim() == 2, f'{tags.data.size()}'
+
         t, c, = torch.broadcast_shapes(
             emissions.data.size()[:2],
             tags.data.size()[:2],
@@ -100,43 +101,19 @@ def compute_partitions(semiring):
     def _compute_partitions_fn(
             emissions: PackedSequence, instr: BatchedInstr,
             transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor, unit: Tensor) -> Tensor:
-        """
+        emissions, _, transitions, start_transitions, end_transitions, (t, c, n, h) = broadcast_packed_sequences(
+            emissions=emissions, tags=None,
+            transitions=transitions,
+            start_transitions=start_transitions,
+            end_transitions=end_transitions,
+        )
 
-        Args:
-            emissions: [t1, c1, n]
-            instr:
-            transitions: [t2, c2, n, n]
-            start_transitions: [t2, c2, n]
-            end_transitions: [t2, c2, n]
-            unit: [n, n]
-
-        Returns:
-            [b, c]
-        """
-
-        assert emissions.data.dim() == 3, f'{emissions.data.size()}'
-        assert transitions.dim() == 4, f'{transitions.size()}'
-        assert start_transitions.dim() == 3, f'{start_transitions.size()}'
-        assert end_transitions.dim() == 3, f'{end_transitions.size()}'
-
-        batch_size = emissions.batch_sizes[0].item()
-        t2 = torch.arange(transitions.size()[0], device=transitions.device)  # [t2]
-        c2 = torch.arange(transitions.size()[1], device=transitions.device)  # [c2]
+        tidx = torch.arange(t, device=transitions.device)  # [t]
+        cidx = torch.arange(c, device=transitions.device)  # [c]
+        hidx = tidx if emissions.unsorted_indices is None else emissions.unsorted_indices  # [h]
 
         scores = log.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
-        scores[:batch_size] = unit[None, None, :, :]
-
-        start_scores = log.mul(  # [t, c, 1, n]
-            start_transitions[t2[:batch_size, None], c2[None, :], None, :],
-            emissions.data[:batch_size, :, None, :],
-        )
-        end_scores = end_transitions[t2[:batch_size, None], c2[None, :], :, None]  # [t, c, n, 1]
-
-        if emissions.unsorted_indices is not None:
-            start_scores = start_scores[emissions.unsorted_indices]
-            if end_scores.size(0) > 1:
-                end_scores = end_scores[emissions.unsorted_indices]
-
+        scores[:h] = unit[None, None, :, :]
         scores = semiring.tree_reduce(
             pack=PackedSequence(
                 data=scores,
@@ -145,6 +122,12 @@ def compute_partitions(semiring):
                 unsorted_indices=emissions.unsorted_indices,
             ), instr=instr,
         )
+
+        start_scores = log.mul(  # [t, c, 1, n]
+            start_transitions[hidx[:, None], cidx[None, :], None, :],
+            emissions.data[hidx, :, None, :],
+        )
+        end_scores = end_transitions[hidx[:, None], cidx[None, :], :, None]  # [t, c, n, 1]
 
         return semiring.bmm(
             semiring.bmm(start_scores, scores), end_scores
