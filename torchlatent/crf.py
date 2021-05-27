@@ -16,56 +16,80 @@ from torchlatent.instr import BatchedInstr, build_crf_batched_instr
 from torchlatent.semiring import log, max
 
 
-def compute_log_scores(
-        emissions: PackedSequence, tags: PackedSequence,
-        transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
+def broadcast_packed_sequences(
+        emissions: PackedSequence, tags: Optional[PackedSequence],
+        transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor):
     """
-
-    Args:
-        emissions: [t1, c1, n]
-        tags: [t1, c1]
-        transitions: [t2, c2, n, n]
-        start_transitions: [t2, c2, n]
-        end_transitions: [t2, c2, n]
-
-    Returns:
-        [b, c]
+        Args:
+            emissions: [t1, c1, n]
+            tags: [t1, c1]
+            transitions: [t2, c2, n, n]
+            start_transitions: [h2, c2, n]
+            end_transitions: [h2, c2, n]
     """
-
     assert emissions.data.dim() == 3, f'{emissions.data.size()}'
     assert tags.data.dim() == 2, f'{tags.data.size()}'
     assert transitions.dim() == 4, f'{transitions.size()}'
     assert start_transitions.dim() == 3, f'{start_transitions.size()}'
     assert end_transitions.dim() == 3, f'{end_transitions.size()}'
 
+    _, _, n = emissions.data.size()
+    h = emissions.batch_sizes[0].item()
+
+    if tags is None:
+        t, c, = torch.broadcast_shapes(
+            emissions.data.size()[:2],
+            transitions.size()[:2],
+        )
+    else:
+        t, c, = torch.broadcast_shapes(
+            emissions.data.size()[:2],
+            tags.data.size()[:2],
+            transitions.size()[:2],
+        )
+        tags = tags._replace(data=tags.data.expand((t, c)))
+
+    emissions = emissions._replace(data=emissions.data.expand((t, c, n)))
+    transitions = transitions.expand((t, c, n, n))
+    start_transitions = start_transitions.expand((h, c, n))
+    end_transitions = end_transitions.expand((h, c, n))
+
+    return emissions, tags, transitions, start_transitions, end_transitions, (t, c, n, h)
+
+
+def compute_log_scores(
+        emissions: PackedSequence, tags: PackedSequence,
+        transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
+    emissions, tags, transitions, start_transitions, end_transitions, (t, c, n, h) = broadcast_packed_sequences(
+        emissions=emissions, tags=tags,
+        transitions=transitions,
+        start_transitions=start_transitions,
+        end_transitions=end_transitions,
+    )
+
     device = transitions.device
     batch_ptr, _, _ = batch_sizes_to_ptr(
         batch_sizes=emissions.batch_sizes.to(device=device),
         sorted_indices=None, unsorted_indices=None,
         total_length=None, device=device,
-    )  # [t1]
+    )  # [t]
 
-    batch_size = emissions.batch_sizes[0].item()
-    t2 = torch.arange(transitions.size()[0], device=device)  # [t2]
-    c2 = torch.arange(transitions.size()[1], device=device)  # [c2]
+    tidx = torch.arange(t, device=device)  # [t]
+    cidx = torch.arange(c, device=device)  # [c]
+    head = select_head(tags, unsort=False)  # [h, c]
+    tail = select_last(tags, unsort=False)  # [h, c]
 
-    src = roll_packed_sequence(tags, offset=1).data  # [t1, c1]
-    dst = tags.data  # [t1, c1]
+    src = roll_packed_sequence(tags, offset=1).data  # [t, c]
+    dst = tags.data  # [t, c]
 
-    sorted_emissions = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t1, c1]
+    scores = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t, c]
 
-    sorted_transitions = transitions[
-        t2[:, None], c2[None, :], src, dst]  # [t, c]
-    sorted_transitions[:batch_size] = start_transitions[
-        t2[:batch_size, None], c2[None, :], select_head(tags, unsort=False)]  # [b, c]
+    sorted_transitions = transitions[tidx[:, None], cidx[None, :], src, dst]  # [t, c]
+    sorted_transitions[:h] = start_transitions[tidx[:h, None], cidx[None, :], head]  # [b, c]
 
-    scores = log.mul(sorted_emissions, sorted_transitions)
+    scores = log.mul(scores, sorted_transitions)
     scores = torch_scatter.scatter_add(scores, index=batch_ptr[:, None], dim=0)
-
-    end_transitions = end_transitions[
-        t2[:batch_size, None], c2[None, :], select_last(tags, unsort=False)]  # [b, c]
-
-    scores = log.mul(scores, end_transitions)
+    scores = log.mul(scores, end_transitions[tidx[:h, None], cidx[None, :], tail])
 
     if emissions.unsorted_indices is not None:
         scores = scores[emissions.unsorted_indices]

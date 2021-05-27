@@ -384,8 +384,8 @@ def test_compute_log_scores_give_time_wise_transitions(device, data, lengths, nu
         emissions = pack_sequence([torch.randn((length, 1, num_tags), device=device, requires_grad=True)])
         tags = pack_sequence([torch.randint(0, num_tags, (length, 1), device=device)])
         transitions = torch.randn((length, 1, num_tags, num_tags), device=device, requires_grad=True)
-        start_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
-        end_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
+        start_transitions = torch.randn((1, 1, num_tags), device=device, requires_grad=True)
+        end_transitions = torch.randn((1, 1, num_tags), device=device, requires_grad=True)
 
         log_scores = compute_log_scores(
             emissions=emissions, tags=tags,
@@ -414,16 +414,14 @@ def test_compute_log_scores_give_time_wise_transitions(device, data, lengths, nu
         tag.data for tag in tags_list], enforce_sorted=False)
     transitions = pack_sequence([
         transition.data for transition in transitions_list], enforce_sorted=False)
-    start_transitions = pack_sequence([
-        start_transition.data for start_transition in start_transitions_list], enforce_sorted=False)
-    end_transitions = pack_sequence([
-        end_transition.data for end_transition in end_transitions_list], enforce_sorted=False)
+    start_transitions = torch.cat(start_transitions_list, dim=0)[transitions.sorted_indices]
+    end_transitions = torch.cat(end_transitions_list, dim=0)[transitions.sorted_indices]
 
     tgt = compute_log_scores(
         emissions=emissions, tags=tags,
         transitions=transitions.data,
-        start_transitions=start_transitions.data,
-        end_transitions=end_transitions.data,
+        start_transitions=start_transitions,
+        end_transitions=end_transitions,
     )
     tgt_grad, = torch.autograd.grad(
         tgt, emissions.data, torch.ones_like(tgt),
@@ -522,8 +520,8 @@ def test_crf_give_time_wise_transitions(device, data, lengths, num_tags):
         emissions = pack_sequence([torch.randn((length, 1, num_tags), device=device, requires_grad=True)])
         tags = pack_sequence([torch.randint(0, num_tags, (length, 1), device=device)])
         transitions = torch.randn((length, 1, num_tags, num_tags), device=device, requires_grad=True)
-        start_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
-        end_transitions = torch.randn((length, 1, num_tags), device=device, requires_grad=True)
+        start_transitions = torch.randn((1, 1, num_tags), device=device, requires_grad=True)
+        end_transitions = torch.randn((1, 1, num_tags), device=device, requires_grad=True)
 
         crf = CrfDecoder(num_tags=num_tags).to(device=device)
         with torch.no_grad():
@@ -556,16 +554,14 @@ def test_crf_give_time_wise_transitions(device, data, lengths, num_tags):
         tag.data for tag in tags_list], enforce_sorted=False)
     transitions = pack_sequence([
         transition.data for transition in transitions_list], enforce_sorted=False)
-    start_transitions = pack_sequence([
-        start_transition.data for start_transition in start_transitions_list], enforce_sorted=False)
-    end_transitions = pack_sequence([
-        end_transition.data for end_transition in end_transitions_list], enforce_sorted=False)
+    start_transitions = torch.cat(start_transitions_list, dim=0)[transitions.sorted_indices]
+    end_transitions = torch.cat(end_transitions_list, dim=0)[transitions.sorted_indices]
 
     crf = CrfDecoder(num_tags=num_tags)
     with torch.no_grad():
         crf.transitions.data = transitions.data
-        crf.start_transitions.data = start_transitions.data
-        crf.end_transitions.data = end_transitions.data
+        crf.start_transitions.data = start_transitions
+        crf.end_transitions.data = end_transitions
 
     tgt_loss = crf.fit(emissions=emissions, tags=tags)
     tgt_grad, = torch.autograd.grad(
