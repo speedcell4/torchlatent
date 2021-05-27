@@ -11,6 +11,7 @@ from torchrua import reversed_indices, select_last
 from torchlatent.crf import compute_log_scores
 from torchlatent.instr import BatchedInstr
 from torchlatent.semiring import log, max
+from torchlatent.utils import broadcast_packed_sequences
 
 
 def scan_scores(semiring):
@@ -28,27 +29,27 @@ def scan_scores(semiring):
             [t, c, n]
         """
 
-        batch_size = emissions.batch_sizes[0].item()
-
-        tc_size = torch.broadcast_shapes(
-            emissions.data.size()[:2],
-            transitions.size()[:2],
+        emissions, _, transitions, start_transitions, _, (t, c, n, h) = broadcast_packed_sequences(
+            emissions=emissions, tags=None,
+            transitions=transitions,
+            start_transitions=start_transitions,
+            end_transitions=start_transitions,
         )
 
         data = torch.empty(
-            (*tc_size, 1, emissions.data.size()[-1]),
+            (t, c, 1, emissions.data.size()[-1]),
             dtype=emissions.data.dtype, device=emissions.data.device, requires_grad=False)
-        data[indices[:batch_size]] = start_transitions[:, :, None, :]
+        data[indices[:h]] = start_transitions[:, :, None, :]
 
-        start, end = 0, batch_size
-        for batch_size in emissions.batch_sizes.detach().cpu().tolist()[1:]:
-            last_start, last_end, start, end = start, start + batch_size, end, end + batch_size
+        start, end = 0, h
+        for h in emissions.batch_sizes.detach().cpu().tolist()[1:]:
+            last_start, last_end, start, end = start, start + h, end, end + h
             data[indices[start:end]] = semiring.bmm(
                 semiring.mul(
                     data[indices[last_start:last_end]],
                     emissions.data[indices[last_start:last_end], :, None],
                 ),
-                transitions[:batch_size],
+                transitions[:h],
             )
 
         return data[..., 0, :]
@@ -102,30 +103,30 @@ def scan_partitions(semiring):
             [t, c, n]
         """
 
-        batch_size = emissions.batch_sizes[0].item()
-
-        tc_size = torch.broadcast_shapes(
-            emissions.data.size()[:2],
-            transitions.size()[:2],
+        emissions, _, transitions, start_transitions, _, (t, c, n, h) = broadcast_packed_sequences(
+            emissions=emissions, tags=None,
+            transitions=transitions,
+            start_transitions=start_transitions,
+            end_transitions=start_transitions,
         )
 
         data = torch.empty(
-            (*tc_size, 1, emissions.data.size()[-1]),
+            (t, c, 1, emissions.data.size()[-1]),
             dtype=emissions.data.dtype, device=emissions.data.device, requires_grad=False)
         indices = torch.arange(data.size()[0], dtype=torch.long, device=data.device)
 
-        data[indices[:batch_size]] = semiring.mul(
+        data[indices[:h]] = semiring.mul(
             start_transitions[:, :, None, :],
-            emissions.data[:batch_size, :, None, :],
+            emissions.data[:h, :, None, :],
         )
 
-        start, end = 0, batch_size
-        for batch_size in emissions.batch_sizes.detach().cpu().tolist()[1:]:
-            last_start, last_end, start, end = start, start + batch_size, end, end + batch_size
+        start, end = 0, h
+        for h in emissions.batch_sizes.detach().cpu().tolist()[1:]:
+            last_start, last_end, start, end = start, start + h, end, end + h
             data[indices[start:end]] = semiring.bmm(
                 data[indices[last_start:last_end]],
                 semiring.mul(
-                    transitions[:batch_size],
+                    transitions[:h],
                     emissions.data[indices[start:end], :, None, :],
                 ),
             )
