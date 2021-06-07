@@ -181,8 +181,8 @@ class CrfDecoderScanABC(nn.Module, metaclass=ABCMeta):
         log_scores = compute_log_scores(
             emissions=emissions, tags=tags,
             transitions=transitions,
-            start_transitions=start_transitions,
-            end_transitions=end_transitions,
+            head_transitions=start_transitions,
+            tail_transitions=end_transitions,
         )
         log_partitions = scan_log_partitions(
             emissions=emissions,

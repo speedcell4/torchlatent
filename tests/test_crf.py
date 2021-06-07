@@ -34,8 +34,8 @@ def test_compute_log_scores_given_emissions(device, data, lengths, num_tags, num
         emissions=emissions,
         tags=tags,
         transitions=crf.transitions[None, None, ...],
-        start_transitions=crf.start_transitions[None, None, ...],
-        end_transitions=crf.end_transitions[None, None, ...],
+        head_transitions=crf.start_transitions[None, None, ...],
+        tail_transitions=crf.end_transitions[None, None, ...],
     )
 
     padded_emissions, lengths = pad_packed_sequence(pack=emissions, batch_first=False)
@@ -84,8 +84,8 @@ def test_compute_log_scores_given_crfs(device, data, lengths, num_tags, num_conj
         emissions=emissions,
         tags=tags,
         transitions=torch.stack([crf.transitions[None, ...] for crf in crfs], dim=1),
-        start_transitions=torch.stack([crf.start_transitions[None, ...] for crf in crfs], dim=1),
-        end_transitions=torch.stack([crf.end_transitions[None, ...] for crf in crfs], dim=1),
+        head_transitions=torch.stack([crf.start_transitions[None, ...] for crf in crfs], dim=1),
+        tail_transitions=torch.stack([crf.end_transitions[None, ...] for crf in crfs], dim=1),
     )
 
     padded_emissions, lengths = pad_packed_sequence(pack=emissions, batch_first=False)
@@ -390,8 +390,8 @@ def test_compute_log_scores_give_time_wise_transitions(device, data, lengths, nu
         log_scores = compute_log_scores(
             emissions=emissions, tags=tags,
             transitions=transitions,
-            start_transitions=start_transitions,
-            end_transitions=end_transitions,
+            head_transitions=start_transitions,
+            tail_transitions=end_transitions,
         )
         grad, = torch.autograd.grad(
             log_scores, emissions.data, torch.ones_like(log_scores),
@@ -420,8 +420,8 @@ def test_compute_log_scores_give_time_wise_transitions(device, data, lengths, nu
     tgt = compute_log_scores(
         emissions=emissions, tags=tags,
         transitions=transitions.data,
-        start_transitions=start_transitions,
-        end_transitions=end_transitions,
+        head_transitions=start_transitions,
+        tail_transitions=end_transitions,
     )
     tgt_grad, = torch.autograd.grad(
         tgt, emissions.data, torch.ones_like(tgt),

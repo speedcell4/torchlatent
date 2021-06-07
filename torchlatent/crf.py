@@ -7,56 +7,56 @@ from torch import nn, autograd, distributions
 from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import packed_sequence_to_lengths
-from torchrua import roll_packed_sequence
-from torchrua import select_head, select_last, batch_sizes_to_ptr
+from torchrua import select_head, select_last, roll_packed_sequence, packed_sequence_to_lengths, pad_packed_sequence
 
 from torchlatent.instr import BatchedInstr, build_crf_batched_instr
 from torchlatent.semiring import log, max
 from torchlatent.utils import broadcast_packed_sequences
 
 
-def compute_log_scores(
-        emissions: PackedSequence, tags: PackedSequence,
-        transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
-    emissions, tags, transitions, start_transitions, end_transitions, (t, c, n, h) = broadcast_packed_sequences(
-        emissions=emissions, tags=tags,
-        transitions=transitions,
-        start_transitions=start_transitions,
-        end_transitions=end_transitions,
-    )
+def compute_scores(semiring):
+    def _compute_scores(
+            emissions: PackedSequence, tags: PackedSequence,
+            transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor) -> Tensor:
+        device = transitions.device
 
-    device = transitions.device
-    batch_ptr, _, _ = batch_sizes_to_ptr(
-        batch_sizes=emissions.batch_sizes.to(device=device),
-        sorted_indices=None,
-        unsorted_indices=None,
-        total_length=None, device=device,
-    )  # [t]
+        emission_scores = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t, c]
 
-    tidx = torch.arange(t, device=device)  # [t]
-    cidx = torch.arange(c, device=device)  # [c]
-    head = select_head(tags, unsort=False)  # [h, c]
-    tail = select_last(tags, unsort=False)  # [h, c]
+        h = emissions.batch_sizes[0].item()
+        t = torch.arange(transitions.size()[0], device=device)  # [t]
+        c = torch.arange(transitions.size()[1], device=device)  # [c]
 
-    src = roll_packed_sequence(tags, offset=1).data  # [t, c]
-    dst = tags.data  # [t, c]
+        x, y = roll_packed_sequence(tags, offset=1).data, tags.data  # [t, c]
+        head = select_head(tags, unsort=False)  # [h, c]
+        tail = select_last(tags, unsort=False)  # [h, c]
 
-    scores = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t, c]
+        transition_scores = transitions[t[:, None], c[None, :], x, y]  # [t, c]
+        transition_head_scores = head_transitions[t[:h, None], c[None, :], head]  # [h, c]
+        transition_tail_scores = tail_transitions[t[:h, None], c[None, :], tail]  # [h, c]
 
-    sorted_transitions = transitions[tidx[:, None], cidx[None, :], src, dst]  # [t, c]
-    sorted_transitions[:h] = start_transitions[tidx[:h, None], cidx[None, :], head]  # [b, c]
+        transition_scores[:h] = transition_head_scores  # [h, c]
+        scores, _ = pad_packed_sequence(
+            PackedSequence(
+                data=semiring.mul(emission_scores, transition_scores),
+                batch_sizes=emissions.batch_sizes,
+                sorted_indices=None,
+                unsorted_indices=None,
+            ),
+            batch_first=False,
+        )
+        scores = semiring.prod(scores, dim=0)
+        scores = semiring.mul(scores, transition_tail_scores)
 
-    scores = log.mul(scores, sorted_transitions)
-    scores = torch.scatter_add(
-        end_transitions[tidx[:h, None], cidx[None, :], tail],
-        index=batch_ptr[:, None].expand((t, c)),
-        dim=0, src=scores,
-    )
+        if emissions.unsorted_indices is not None:
+            scores = scores[emissions.unsorted_indices]
 
-    if emissions.unsorted_indices is not None:
-        scores = scores[emissions.unsorted_indices]
-    return scores
+        return scores
+
+    return _compute_scores
+
+
+compute_log_scores = compute_scores(log)
+compute_max_scores = compute_scores(max)
 
 
 def compute_partitions(semiring):
@@ -120,8 +120,8 @@ class CrfDistribution(distributions.Distribution):
         return compute_log_scores(
             emissions=self.emissions, tags=tags,
             transitions=self.transitions,
-            start_transitions=self.start_transitions,
-            end_transitions=self.end_transitions,
+            head_transitions=self.start_transitions,
+            tail_transitions=self.end_transitions,
         )
 
     @lazy_property
