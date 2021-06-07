@@ -11,7 +11,6 @@ from torchrua import select_head, select_last, roll_packed_sequence, packed_sequ
 
 from torchlatent.instr import BatchedInstr, build_crf_batched_instr
 from torchlatent.semiring import log, max
-from torchlatent.utils import broadcast_packed_sequences
 
 
 def compute_scores(semiring):
@@ -60,42 +59,40 @@ compute_max_scores = compute_scores(max)
 
 
 def compute_partitions(semiring):
-    def _compute_partitions_fn(
+    def _compute_partitions(
             emissions: PackedSequence, instr: BatchedInstr,
-            transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor, unit: Tensor) -> Tensor:
-        emissions, _, transitions, start_transitions, end_transitions, (t, c, n, h) = broadcast_packed_sequences(
-            emissions=emissions, tags=None,
-            transitions=transitions,
-            start_transitions=start_transitions,
-            end_transitions=end_transitions,
-        )
+            transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor, unit: Tensor) -> Tensor:
+        h = emissions.batch_sizes[0].item()
+        t = torch.arange(transitions.size()[0], device=transitions.device)  # [t]
+        c = torch.arange(transitions.size()[1], device=transitions.device)  # [c]
 
-        tidx = torch.arange(t, device=transitions.device)  # [t]
-        cidx = torch.arange(c, device=transitions.device)  # [c]
-        hidx = tidx if emissions.unsorted_indices is None else emissions.unsorted_indices  # [h]
-
-        scores = log.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
+        scores = semiring.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
         scores[:h] = unit[None, None, :, :]
+
         scores = semiring.tree_reduce(
             pack=PackedSequence(
                 data=scores,
                 batch_sizes=emissions.batch_sizes,
                 sorted_indices=emissions.sorted_indices,
                 unsorted_indices=emissions.unsorted_indices,
-            ), instr=instr,
-        )
+            ),
+            instr=instr,
+        )[emissions.sorted_indices]
 
-        start_scores = log.mul(  # [t, c, 1, n]
-            start_transitions[hidx[:, None], cidx[None, :], None, :],
-            emissions.data[hidx, :, None, :],
-        )
-        end_scores = end_transitions[hidx[:, None], cidx[None, :], :, None]  # [t, c, n, 1]
+        emission_head_scores = emissions.data[:h, :, None, :]
+        transition_head_scores = head_transitions[t[:h, None], c[None, :], None, :]
+        transition_tail_scores = tail_transitions[t[:h, None], c[None, :], :, None]
 
-        return semiring.bmm(
-            semiring.bmm(start_scores, scores), end_scores
+        scores = semiring.bmm(
+            semiring.bmm(semiring.mul(transition_head_scores, emission_head_scores), scores),
+            transition_tail_scores,
         )[..., 0, 0]
 
-    return _compute_partitions_fn
+        if emissions.unsorted_indices is not None:
+            scores = scores[emissions.unsorted_indices]
+        return scores
+
+    return _compute_partitions
 
 
 compute_log_partitions = compute_partitions(log)
@@ -104,14 +101,14 @@ compute_max_partitions = compute_partitions(max)
 
 class CrfDistribution(distributions.Distribution):
     def __init__(self, emissions: PackedSequence, instr: BatchedInstr,
-                 transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor) -> None:
+                 transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor) -> None:
         super(CrfDistribution, self).__init__()
         self.emissions = emissions
         self.instr = instr
 
         self.transitions = transitions
-        self.start_transitions = start_transitions
-        self.end_transitions = end_transitions
+        self.head_transitions = head_transitions
+        self.tail_transitions = tail_transitions
 
     def log_prob(self, tags: PackedSequence) -> Tensor:
         return self.log_scores(tags=tags) - self.log_partitions
@@ -120,8 +117,8 @@ class CrfDistribution(distributions.Distribution):
         return compute_log_scores(
             emissions=self.emissions, tags=tags,
             transitions=self.transitions,
-            head_transitions=self.start_transitions,
-            tail_transitions=self.end_transitions,
+            head_transitions=self.head_transitions,
+            tail_transitions=self.tail_transitions,
         )
 
     @lazy_property
@@ -130,8 +127,8 @@ class CrfDistribution(distributions.Distribution):
             emissions=self.emissions, instr=self.instr,
             unit=log.fill_unit(self.transitions),
             transitions=self.transitions,
-            start_transitions=self.start_transitions,
-            end_transitions=self.end_transitions,
+            head_transitions=self.head_transitions,
+            tail_transitions=self.tail_transitions,
         )
 
     @lazy_property
@@ -149,8 +146,8 @@ class CrfDistribution(distributions.Distribution):
             emissions=self.emissions, instr=self.instr,
             unit=max.fill_unit(self.transitions),
             transitions=self.transitions,
-            start_transitions=self.start_transitions,
-            end_transitions=self.end_transitions,
+            head_transitions=self.head_transitions,
+            tail_transitions=self.tail_transitions,
         )
 
         grad, = torch.autograd.grad(
@@ -193,19 +190,19 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         return emissions, tags, instr
 
     def obtain_parameters(self, *args, **kwargs):
-        return self.transitions, self.start_transitions, self.end_transitions
+        return self.transitions, self.head_transitions, self.tail_transitions
 
     def forward(self, emissions: PackedSequence, tags: Optional[PackedSequence] = None,
                 instr: Optional[BatchedInstr] = None):
         emissions, tags, instr = self._validate(emissions=emissions, tags=tags, instr=instr)
-        transitions, start_transitions, end_transitions = self.obtain_parameters(
+        transitions, head_transitions, tail_transitions = self.obtain_parameters(
             emissions=emissions, tags=tags, instr=instr)
 
         dist = CrfDistribution(
             emissions=emissions, instr=instr,
             transitions=transitions,
-            start_transitions=start_transitions,
-            end_transitions=end_transitions,
+            head_transitions=head_transitions,
+            tail_transitions=tail_transitions,
         )
 
         return dist, tags
@@ -243,11 +240,11 @@ class CrfDecoder(CrfDecoderABC):
             torch.empty((1, self.num_conjugates, self.num_tags, self.num_tags)),
             requires_grad=True,
         )
-        self.start_transitions = nn.Parameter(
+        self.head_transitions = nn.Parameter(
             torch.empty((1, self.num_conjugates, self.num_tags)),
             requires_grad=True,
         )
-        self.end_transitions = nn.Parameter(
+        self.tail_transitions = nn.Parameter(
             torch.empty((1, self.num_conjugates, self.num_tags)),
             requires_grad=True,
         )
@@ -257,8 +254,8 @@ class CrfDecoder(CrfDecoderABC):
     @torch.no_grad()
     def reset_parameters(self, bound: float = 0.01) -> None:
         init.uniform_(self.transitions, -bound, +bound)
-        init.uniform_(self.start_transitions, -bound, +bound)
-        init.uniform_(self.end_transitions, -bound, +bound)
+        init.uniform_(self.head_transitions, -bound, +bound)
+        init.uniform_(self.tail_transitions, -bound, +bound)
 
     def extra_repr(self) -> str:
         return ', '.join([
@@ -282,11 +279,11 @@ class ConjugatedCrfDecoder(CrfDecoderABC):
             crf_decoder.reset_parameters(bound=bound)
 
     def obtain_parameters(self, *args, **kwargs):
-        transitions, start_transitions, end_transitions = zip(*[
+        transitions, head_transitions, tail_transitions = zip(*[
             crf_decoder.obtain_parameters(*args, **kwargs)
             for crf_decoder in self.crf_decoders
         ])
         transitions = torch.cat(transitions, dim=1)
-        start_transitions = torch.cat(start_transitions, dim=1)
-        end_transitions = torch.cat(end_transitions, dim=1)
-        return transitions, start_transitions, end_transitions
+        head_transitions = torch.cat(head_transitions, dim=1)
+        tail_transitions = torch.cat(tail_transitions, dim=1)
+        return transitions, head_transitions, tail_transitions

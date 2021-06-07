@@ -24,8 +24,8 @@ def test_marginal(batch_size, num_conj, num_tags):
 
     with torch.no_grad():
         crf2.transitions.data[:] = crf1.transitions.data[:]
-        crf2.start_transitions.data[:] = crf1.start_transitions.data[:]
-        crf2.end_transitions.data[:] = crf1.end_transitions.data[:]
+        crf2.head_transitions.data[:] = crf1.head_transitions.data[:]
+        crf2.tail_transitions.data[:] = crf1.tail_transitions.data[:]
 
     tgt = crf1.marginals(emissions=emissions)
     prd = crf2.marginals(emissions=emissions)
@@ -67,8 +67,8 @@ def test_fit(batch_size, num_conj, num_tags):
 
     with torch.no_grad():
         crf2.transitions.data[:] = crf1.transitions.data[:]
-        crf2.start_transitions.data[:] = crf1.start_transitions.data[:]
-        crf2.end_transitions.data[:] = crf1.end_transitions.data[:]
+        crf2.head_transitions.data[:] = crf1.head_transitions.data[:]
+        crf2.tail_transitions.data[:] = crf1.tail_transitions.data[:]
 
     tgt = crf1.fit(emissions=emissions, tags=tags)
     prd = crf2.fit(emissions=emissions, tags=tags)
@@ -105,8 +105,8 @@ def test_decode(batch_size, num_conj, num_tags):
 
     with torch.no_grad():
         crf2.transitions.data[:] = crf1.transitions.data[:]
-        crf2.start_transitions.data[:] = crf1.start_transitions.data[:]
-        crf2.end_transitions.data[:] = crf1.end_transitions.data[:]
+        crf2.head_transitions.data[:] = crf1.head_transitions.data[:]
+        crf2.tail_transitions.data[:] = crf1.tail_transitions.data[:]
 
     tgt = crf1.decode(emissions=emissions)
     prd = crf2.decode(emissions=emissions)

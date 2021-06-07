@@ -16,30 +16,30 @@ from torchlatent.utils import broadcast_packed_sequences
 
 def scan_scores(semiring):
     def _scan_scores(emissions: PackedSequence, indices: Tensor,
-                     transitions: Tensor, start_transitions: Tensor) -> Tensor:
+                     transitions: Tensor, head_transitions: Tensor) -> Tensor:
         """
 
         Args:
             emissions: [t1, c1, n]
             indices: [t1]
             transitions: [t2, c2, n, n]
-            start_transitions: [t2, c2, n]
+            head_transitions: [t2, c2, n]
 
         Returns:
             [t, c, n]
         """
 
-        emissions, _, transitions, start_transitions, _, (t, c, n, h) = broadcast_packed_sequences(
+        emissions, _, transitions, head_transitions, _, (t, c, n, h) = broadcast_packed_sequences(
             emissions=emissions, tags=None,
             transitions=transitions,
-            start_transitions=start_transitions,
-            end_transitions=start_transitions,
+            head_transitions=head_transitions,
+            tail_transitions=head_transitions,
         )
 
         data = torch.empty(
             (t, c, 1, emissions.data.size()[-1]),
             dtype=emissions.data.dtype, device=emissions.data.device, requires_grad=False)
-        data[indices[:h]] = start_transitions[:, :, None, :]
+        data[indices[:h]] = head_transitions[:, :, None, :]
 
         start, end = 0, h
         for h in emissions.batch_sizes.detach().cpu().tolist()[1:]:
@@ -62,19 +62,19 @@ scan_log_scores = scan_scores(log)
 
 def compute_marginals(semiring, scan_semi_scores):
     def _compute_marginals(emissions: PackedSequence, transitions: Tensor,
-                           start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
+                           head_transitions: Tensor, tail_transitions: Tensor) -> Tensor:
         alpha = scan_semi_scores(
             emissions._replace(data=emissions.data),
             torch.arange(emissions.data.size(0)),
             transitions,
-            start_transitions,
+            head_transitions,
         )
 
         beta = scan_semi_scores(
             emissions._replace(data=emissions.data),
             reversed_indices(emissions),
             transitions.transpose(-2, -1),
-            end_transitions,
+            tail_transitions,
         )
 
         return semiring.prod(torch.stack([
@@ -89,25 +89,25 @@ compute_log_marginals = compute_marginals(log, scan_log_scores)
 
 def scan_partitions(semiring):
     def _scan_partitions(emissions: PackedSequence, transitions: Tensor,
-                         start_transitions: Tensor, end_transitions: Tensor) -> Tensor:
+                         head_transitions: Tensor, tail_transitions: Tensor) -> Tensor:
         """
 
         Args:
             emissions: [t1, c1, n]
             indices: [t1]
             transitions: [t2, c2, n, n]
-            start_transitions: [t2, c2, n]
-            end_transitions: [t2, c2, n]
+            head_transitions: [t2, c2, n]
+            tail_transitions: [t2, c2, n]
 
         Returns:
             [t, c, n]
         """
 
-        emissions, _, transitions, start_transitions, _, (t, c, n, h) = broadcast_packed_sequences(
+        emissions, _, transitions, head_transitions, _, (t, c, n, h) = broadcast_packed_sequences(
             emissions=emissions, tags=None,
             transitions=transitions,
-            start_transitions=start_transitions,
-            end_transitions=start_transitions,
+            head_transitions=head_transitions,
+            tail_transitions=head_transitions,
         )
 
         data = torch.empty(
@@ -116,7 +116,7 @@ def scan_partitions(semiring):
         indices = torch.arange(data.size()[0], dtype=torch.long, device=data.device)
 
         data[indices[:h]] = semiring.mul(
-            start_transitions[:, :, None, :],
+            head_transitions[:, :, None, :],
             emissions.data[:h, :, None, :],
         )
 
@@ -132,7 +132,7 @@ def scan_partitions(semiring):
             )
 
         data = select_last(emissions._replace(data=data), unsort=True)
-        ans = semiring.bmm(data, end_transitions[..., None])
+        ans = semiring.bmm(data, tail_transitions[..., None])
         return ans[..., 0, 0]
 
     return _scan_partitions
@@ -163,32 +163,32 @@ class CrfDecoderScanABC(nn.Module, metaclass=ABCMeta):
         return emissions, tags, None
 
     def obtain_parameters(self, *args, **kwargs):
-        return self.transitions, self.start_transitions, self.end_transitions
+        return self.transitions, self.head_transitions, self.tail_transitions
 
     def forward(self, emissions: PackedSequence, tags: Optional[PackedSequence] = None,
                 instr: Optional[BatchedInstr] = None):
         emissions, tags, instr = self._validate(emissions=emissions, tags=tags, instr=instr)
-        transitions, start_transitions, end_transitions = self.obtain_parameters(
+        transitions, head_transitions, tail_transitions = self.obtain_parameters(
             emissions=emissions, tags=tags, instr=instr)
 
-        return (emissions, tags, instr), (transitions, start_transitions, end_transitions)
+        return (emissions, tags, instr), (transitions, head_transitions, tail_transitions)
 
     def fit(self, emissions: PackedSequence, tags: PackedSequence,
             instr: Optional[BatchedInstr] = None, reduction: str = 'none') -> Tensor:
-        (emissions, tags, instr), (transitions, start_transitions, end_transitions) = self(
+        (emissions, tags, instr), (transitions, head_transitions, tail_transitions) = self(
             emissions=emissions, tags=tags, instr=instr)
 
         log_scores = compute_log_scores(
             emissions=emissions, tags=tags,
             transitions=transitions,
-            head_transitions=start_transitions,
-            tail_transitions=end_transitions,
+            head_transitions=head_transitions,
+            tail_transitions=tail_transitions,
         )
         log_partitions = scan_log_partitions(
             emissions=emissions,
             transitions=transitions,
-            start_transitions=start_transitions,
-            end_transitions=end_transitions,
+            head_transitions=head_transitions,
+            tail_transitions=tail_transitions,
         )
         log_prob = log_scores - log_partitions
 
@@ -201,14 +201,14 @@ class CrfDecoderScanABC(nn.Module, metaclass=ABCMeta):
         raise NotImplementedError(f'{reduction} is not supported')
 
     def decode(self, emissions: PackedSequence, instr: Optional[BatchedInstr] = None) -> PackedSequence:
-        (emissions, _, instr), (transitions, start_transitions, end_transitions) = self(
+        (emissions, _, instr), (transitions, head_transitions, tail_transitions) = self(
             emissions=emissions, tags=None, instr=instr)
 
         max_partitions = scan_max_partitions(
             emissions=emissions,
             transitions=transitions,
-            start_transitions=start_transitions,
-            end_transitions=end_transitions,
+            head_transitions=head_transitions,
+            tail_transitions=tail_transitions,
         )
         predictions, = torch.autograd.grad(
             max_partitions, emissions.data, torch.ones_like(max_partitions),
@@ -218,14 +218,14 @@ class CrfDecoderScanABC(nn.Module, metaclass=ABCMeta):
         return emissions._replace(data=predictions.argmax(dim=-1))
 
     def marginals(self, emissions: PackedSequence, instr: Optional[BatchedInstr] = None) -> Tensor:
-        (emissions, _, instr), (transitions, start_transitions, end_transitions) = self(
+        (emissions, _, instr), (transitions, head_transitions, tail_transitions) = self(
             emissions=emissions, tags=None, instr=instr)
 
         scores = compute_log_marginals(
             emissions=emissions,
             transitions=transitions,
-            start_transitions=start_transitions,
-            end_transitions=end_transitions,
+            head_transitions=head_transitions,
+            tail_transitions=tail_transitions,
         )
 
         return scores.exp() / scores.exp().sum(dim=-1, keepdim=True)
@@ -239,11 +239,11 @@ class CrfDecoderScan(CrfDecoderScanABC):
             torch.empty((1, self.num_conjugates, self.num_tags, self.num_tags)),
             requires_grad=True,
         )
-        self.start_transitions = nn.Parameter(
+        self.head_transitions = nn.Parameter(
             torch.empty((1, self.num_conjugates, self.num_tags)),
             requires_grad=True,
         )
-        self.end_transitions = nn.Parameter(
+        self.tail_transitions = nn.Parameter(
             torch.empty((1, self.num_conjugates, self.num_tags)),
             requires_grad=True,
         )
@@ -253,8 +253,8 @@ class CrfDecoderScan(CrfDecoderScanABC):
     @torch.no_grad()
     def reset_parameters(self, bound: float = 0.01) -> None:
         init.uniform_(self.transitions, -bound, +bound)
-        init.uniform_(self.start_transitions, -bound, +bound)
-        init.uniform_(self.end_transitions, -bound, +bound)
+        init.uniform_(self.head_transitions, -bound, +bound)
+        init.uniform_(self.tail_transitions, -bound, +bound)
 
     def extra_repr(self) -> str:
         return ', '.join([
