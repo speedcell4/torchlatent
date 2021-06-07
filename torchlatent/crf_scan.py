@@ -94,7 +94,6 @@ def scan_partitions(semiring):
 
         Args:
             emissions: [t1, c1, n]
-            indices: [t1]
             transitions: [t2, c2, n, n]
             head_transitions: [t2, c2, n]
             tail_transitions: [t2, c2, n]
@@ -103,37 +102,31 @@ def scan_partitions(semiring):
             [t, c, n]
         """
 
-        emissions, _, transitions, head_transitions, _, (t, c, n, h) = broadcast_packed_sequences(
-            emissions=emissions, tags=None,
-            transitions=transitions,
-            head_transitions=head_transitions,
-            tail_transitions=head_transitions,
-        )
+        h = emissions.batch_sizes[0].item()
 
-        data = torch.empty(
-            (t, c, 1, emissions.data.size()[-1]),
-            dtype=emissions.data.dtype, device=emissions.data.device, requires_grad=False)
-        indices = torch.arange(data.size()[0], dtype=torch.long, device=data.device)
+        scores = semiring.mul(emissions.data[:, :, None, :], transitions)
+        data = torch.empty_like(scores, requires_grad=False)
 
-        data[indices[:h]] = semiring.mul(
+        index = torch.arange(data.size()[0], dtype=torch.long, device=data.device)
+        data[index[:h]] = semiring.mul(
+            emissions.data[index[:h], :, None, :],
             head_transitions[:, :, None, :],
-            emissions.data[:h, :, None, :],
         )
 
         start, end = 0, h
         for h in emissions.batch_sizes.detach().cpu().tolist()[1:]:
             last_start, last_end, start, end = start, start + h, end, end + h
-            data[indices[start:end]] = semiring.bmm(
-                data[indices[last_start:last_end]],
-                semiring.mul(
-                    transitions[indices[start:end]],
-                    emissions.data[indices[start:end], :, None, :],
-                ),
+            data[index[start:end]] = semiring.bmm(
+                data[index[last_start:last_end]],
+                scores[index[start:end]],
             )
 
-        data = select_last(emissions._replace(data=data), unsort=True)
-        ans = semiring.bmm(data, tail_transitions[..., None])
-        return ans[..., 0, 0]
+        data = select_last(emissions._replace(data=data), unsort=False)
+        data = semiring.bmm(data, tail_transitions[..., None])[..., 0, 0]
+
+        if emissions.unsorted_indices is not None:
+            data = data[emissions.unsorted_indices]
+        return data
 
     return _scan_partitions
 
