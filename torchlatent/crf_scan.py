@@ -105,7 +105,7 @@ def scan_partitions(semiring):
         h = emissions.batch_sizes[0].item()
 
         scores = semiring.mul(emissions.data[:, :, None, :], transitions)
-        data = torch.empty_like(scores, requires_grad=False)
+        data = torch.empty_like(scores[:, :, :1, :], requires_grad=False)
 
         index = torch.arange(data.size()[0], dtype=torch.long, device=data.device)
         data[index[:h]] = semiring.mul(
@@ -116,10 +116,8 @@ def scan_partitions(semiring):
         start, end = 0, h
         for h in emissions.batch_sizes.detach().cpu().tolist()[1:]:
             last_start, last_end, start, end = start, start + h, end, end + h
-            data[index[start:end]] = semiring.bmm(
-                data[index[last_start:last_end]],
-                scores[index[start:end]],
-            )
+            prev_index, curr_index = index[start:end], index[last_start:last_end]
+            data[prev_index] = semiring.bmm(data[curr_index], scores[prev_index])
 
         data = select_last(emissions._replace(data=data), unsort=False)
         data = semiring.bmm(data, tail_transitions[..., None])[..., 0, 0]
