@@ -10,15 +10,17 @@ if torch.cuda.is_available():
     TINY_TOKEN_SIZE = 12
 
     MAX_NUM_TAGS = 100
+    MAX_NUM_CONJUGATES = 16
 
 else:
-    MAX_BATCH_SIZE = 24
-    TINY_BATCH_SIZE = 24
+    MAX_BATCH_SIZE = 12
+    TINY_BATCH_SIZE = 6
 
-    MAX_TOKEN_SIZE = 128
+    MAX_TOKEN_SIZE = 24
     TINY_TOKEN_SIZE = 12
 
-    MAX_NUM_TAGS = 16
+    MAX_NUM_TAGS = 12
+    MAX_NUM_CONJUGATES = 6
 
 
 @st.composite
@@ -58,5 +60,10 @@ def token_size_lists(draw, max_token_size: int = MAX_TOKEN_SIZE, max_batch_size:
 
 
 @st.composite
-def num_tags(draw, max_value: int = MAX_NUM_TAGS):
+def tag_sizes(draw, max_value: int = MAX_NUM_TAGS):
+    return draw(st.integers(min_value=1, max_value=max_value))
+
+
+@st.composite
+def conjugate_sizes(draw, max_value: int = MAX_NUM_CONJUGATES):
     return draw(st.integers(min_value=1, max_value=max_value))
