@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+from torchrua.tree_reduction import tree_reduce_sequence, TreeReduceIndices
 
 from torchlatent.functional import logsumexp
 
@@ -40,6 +41,10 @@ class Semiring(object):
     @classmethod
     def bmm(cls, x: Tensor, y: Tensor) -> Tensor:
         return cls.sum(cls.mul(x.unsqueeze(-1), y.unsqueeze(-3)), dim=-2, keepdim=False)
+
+    @classmethod
+    def reduce(cls, tensor: Tensor, indices: TreeReduceIndices) -> Tensor:
+        return tree_reduce_sequence(cls.bmm)(tensor=tensor, indices=indices)
 
 
 class Std(Semiring):

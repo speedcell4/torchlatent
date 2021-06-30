@@ -1,19 +1,19 @@
 from abc import ABCMeta
-from typing import Optional
+from typing import Optional, Type, Tuple
 
 import torch
 from torch import Tensor
-from torch import nn, autograd, distributions
+from torch import nn, autograd
 from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import select_head, select_last, roll_packed_sequence, packed_sequence_to_lengths, pad_packed_sequence
+from torchrua import TreeReduceIndices, tree_reduce_packed_indices
+from torchrua import select_head, select_last, roll_packed_sequence, pad_packed_sequence
 
-from torchlatent.instr import BatchedInstr, build_crf_batched_instr
-from torchlatent.semiring import log, max
+from torchlatent.semiring import Semiring, Log, Max
 
 
-def compute_scores(semiring):
+def compute_scores(semiring: Type[Semiring]):
     def _compute_scores(
             emissions: PackedSequence, tags: PackedSequence,
             transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor) -> Tensor:
@@ -25,7 +25,7 @@ def compute_scores(semiring):
         t = torch.arange(transitions.size()[0], device=device)  # [t]
         c = torch.arange(transitions.size()[1], device=device)  # [c]
 
-        x, y = roll_packed_sequence(tags, offset=1).data, tags.data  # [t, c]
+        x, y = roll_packed_sequence(tags, shifts=1).data, tags.data  # [t, c]
         head = select_head(tags, unsort=False)  # [h, c]
         tail = select_last(tags, unsort=False)  # [h, c]
 
@@ -54,30 +54,17 @@ def compute_scores(semiring):
     return _compute_scores
 
 
-compute_log_scores = compute_scores(log)
-compute_max_scores = compute_scores(max)
-
-
-def compute_partitions(semiring):
+def compute_partitions(semiring: Type[Semiring]):
     def _compute_partitions(
-            emissions: PackedSequence, instr: BatchedInstr,
-            transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor, unit: Tensor) -> Tensor:
+            emissions: PackedSequence, indices: TreeReduceIndices,
+            transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor, eye: Tensor) -> Tensor:
         h = emissions.batch_sizes[0].item()
         t = torch.arange(transitions.size()[0], device=transitions.device)  # [t]
         c = torch.arange(transitions.size()[1], device=transitions.device)  # [c]
 
         scores = semiring.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
-        scores[:h] = unit[None, None, :, :]
-
-        scores = semiring.tree_reduce(
-            pack=PackedSequence(
-                data=scores,
-                batch_sizes=emissions.batch_sizes,
-                sorted_indices=emissions.sorted_indices,
-                unsorted_indices=emissions.unsorted_indices,
-            ),
-            instr=instr,
-        )[emissions.sorted_indices]
+        scores[:h] = eye[None, None, :, :]
+        scores = semiring.reduce(tensor=scores, indices=indices)
 
         emission_head_scores = emissions.data[:h, :, None, :]
         transition_head_scores = head_transitions[t[:h, None], c[None, :], None, :]
@@ -95,63 +82,59 @@ def compute_partitions(semiring):
     return _compute_partitions
 
 
-compute_log_partitions = compute_partitions(log)
-compute_max_partitions = compute_partitions(max)
-
-
-class CrfDistribution(distributions.Distribution):
-    def __init__(self, emissions: PackedSequence, instr: BatchedInstr,
+class CrfDistribution(object):
+    def __init__(self, emissions: PackedSequence, indices: TreeReduceIndices,
                  transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor) -> None:
         super(CrfDistribution, self).__init__()
         self.emissions = emissions
-        self.instr = instr
+        self.indices = indices
 
         self.transitions = transitions
         self.head_transitions = head_transitions
         self.tail_transitions = tail_transitions
 
-    def log_prob(self, tags: PackedSequence) -> Tensor:
-        return self.log_scores(tags=tags) - self.log_partitions
-
-    def log_scores(self, tags: PackedSequence) -> Tensor:
-        return compute_log_scores(
+    def semiring_scores(self, semiring: Type[Semiring], tags: PackedSequence) -> Tensor:
+        return compute_scores(semiring=semiring)(
             emissions=self.emissions, tags=tags,
             transitions=self.transitions,
             head_transitions=self.head_transitions,
             tail_transitions=self.tail_transitions,
         )
 
-    @lazy_property
-    def log_partitions(self) -> Tensor:
-        return compute_log_partitions(
-            emissions=self.emissions, instr=self.instr,
-            unit=log.fill_unit(self.transitions),
+    def semiring_partitions(self, semiring: Type[Semiring]) -> Tensor:
+        return compute_partitions(semiring=semiring)(
+            emissions=self.emissions, indices=self.indices,
             transitions=self.transitions,
             head_transitions=self.head_transitions,
             tail_transitions=self.tail_transitions,
+            eye=semiring.eye_like(self.transitions),
         )
+
+    def log_prob(self, tags: PackedSequence) -> Tensor:
+        return self.log_scores(tags=tags) - self.log_partitions
+
+    def log_scores(self, tags: PackedSequence) -> Tensor:
+        return self.semiring_scores(semiring=Log, tags=tags)
+
+    @lazy_property
+    def log_partitions(self) -> Tensor:
+        return self.semiring_partitions(semiring=Log)
 
     @lazy_property
     def marginals(self) -> Tensor:
-        partitions = self.log_partitions
+        log_partitions = self.log_partitions
         grad, = autograd.grad(
-            partitions, self.emissions.data, torch.ones_like(partitions),
+            log_partitions, self.emissions.data, torch.ones_like(log_partitions),
             create_graph=True, only_inputs=True, allow_unused=False,
         )
         return grad
 
     @lazy_property
     def argmax(self) -> PackedSequence:
-        partitions = compute_max_partitions(
-            emissions=self.emissions, instr=self.instr,
-            unit=max.fill_unit(self.transitions),
-            transitions=self.transitions,
-            head_transitions=self.head_transitions,
-            tail_transitions=self.tail_transitions,
-        )
+        max_partitions = self.semiring_partitions(semiring=Max)
 
         grad, = torch.autograd.grad(
-            partitions, self.emissions.data, torch.ones_like(partitions),
+            max_partitions, self.emissions.data, torch.ones_like(max_partitions),
             retain_graph=False, create_graph=False, allow_unused=False,
         )
         return PackedSequence(
@@ -169,7 +152,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         self.num_tags = num_tags
         self.num_conjugates = num_conjugates
 
-    def reset_parameters(self, bound: float = 0.01) -> None:
+    def reset_parameters(self) -> None:
         raise NotImplementedError
 
     def extra_repr(self) -> str:
@@ -179,27 +162,26 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         ])
 
     @staticmethod
-    def _validate(emissions: PackedSequence, tags: Optional[PackedSequence], instr: Optional[BatchedInstr]):
-        if instr is None:
-            lengths = packed_sequence_to_lengths(pack=emissions, unsort=True)
-            instr = build_crf_batched_instr(
-                lengths=lengths, device=emissions.data.device,
-                sorted_indices=emissions.sorted_indices,
-            )
+    def prepare_indices(emissions: PackedSequence, tags: Optional[PackedSequence] = None,
+                        indices: Optional[TreeReduceIndices] = None, **kwargs):
+        if indices is None:
+            batch_sizes = emissions.batch_sizes.to(device=emissions.data.device)
+            indices = tree_reduce_packed_indices(batch_sizes=batch_sizes)
 
-        return emissions, tags, instr
+        return indices
 
-    def obtain_parameters(self, *args, **kwargs):
+    def obtain_parameters(self, **kwargs) -> Tuple[Tensor, Tensor, Tensor]:
         return self.transitions, self.head_transitions, self.tail_transitions
 
     def forward(self, emissions: PackedSequence, tags: Optional[PackedSequence] = None,
-                instr: Optional[BatchedInstr] = None):
-        emissions, tags, instr = self._validate(emissions=emissions, tags=tags, instr=instr)
+                indices: Optional[TreeReduceIndices] = None, **kwargs):
+        indices = self.prepare_indices(emissions=emissions, tags=tags, indices=indices)
         transitions, head_transitions, tail_transitions = self.obtain_parameters(
-            emissions=emissions, tags=tags, instr=instr)
+            emissions=emissions, tags=tags, indices=indices,
+        )
 
         dist = CrfDistribution(
-            emissions=emissions, instr=instr,
+            emissions=emissions, indices=indices,
             transitions=transitions,
             head_transitions=head_transitions,
             tail_transitions=tail_transitions,
@@ -208,27 +190,19 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         return dist, tags
 
     def fit(self, emissions: PackedSequence, tags: PackedSequence,
-            instr: Optional[BatchedInstr] = None, reduction: str = 'none') -> Tensor:
-        dist, tags = self(emissions=emissions, tags=tags, instr=instr)
+            indices: Optional[TreeReduceIndices] = None, **kwargs) -> Tensor:
+        dist, tags = self(emissions=emissions, tags=tags, instr=indices, **kwargs)
 
-        log_prob = dist.log_prob(tags)
+        return dist.log_prob(tags=tags)
 
-        if reduction == 'none':
-            return log_prob
-        if reduction == 'sum':
-            return log_prob.sum()
-        if reduction == 'mean':
-            return log_prob.mean()
-        raise NotImplementedError(f'{reduction} is not supported')
-
-    def decode(self, emissions: PackedSequence, instr: Optional[BatchedInstr] = None) -> PackedSequence:
-        dist, _ = self(emissions=emissions, tags=None, instr=instr)
-
+    def decode(self, emissions: PackedSequence,
+               indices: Optional[TreeReduceIndices] = None, **kwargs) -> PackedSequence:
+        dist, _ = self(emissions=emissions, tags=None, instr=indices, **kwargs)
         return dist.argmax
 
-    def marginals(self, emissions: PackedSequence, instr: Optional[BatchedInstr] = None) -> Tensor:
-        dist, _ = self(emissions=emissions, tags=None, instr=instr)
-
+    def marginals(self, emissions: PackedSequence,
+                  indices: Optional[TreeReduceIndices] = None, **kwargs) -> Tensor:
+        dist, _ = self(emissions=emissions, tags=None, instr=indices, **kwargs)
         return dist.marginals
 
 
@@ -252,7 +226,8 @@ class CrfDecoder(CrfDecoderABC):
         self.reset_parameters()
 
     @torch.no_grad()
-    def reset_parameters(self, bound: float = 0.01) -> None:
+    def reset_parameters(self) -> None:
+        bound = 1 / self.num_tags
         init.uniform_(self.transitions, -bound, +bound)
         init.uniform_(self.head_transitions, -bound, +bound)
         init.uniform_(self.tail_transitions, -bound, +bound)
@@ -262,28 +237,3 @@ class CrfDecoder(CrfDecoderABC):
             f'num_tags={self.num_tags}',
             f'num_conjugates={self.num_conjugates}',
         ])
-
-
-class ConjugatedCrfDecoder(CrfDecoderABC):
-    def __init__(self, *crf_decoders: CrfDecoderABC) -> None:
-        super(ConjugatedCrfDecoder, self).__init__(num_tags=crf_decoders[0].num_tags, num_conjugates=0)
-
-        self.crf_decoders = nn.ModuleList(crf_decoders)
-        for crf_decoder in self.crf_decoders:
-            assert self.num_tags == crf_decoder.num_tags
-            self.num_conjugates += crf_decoder.num_conjugates
-
-    @torch.no_grad()
-    def reset_parameters(self, bound: float = 0.01) -> None:
-        for crf_decoder in self.crf_decoders:
-            crf_decoder.reset_parameters(bound=bound)
-
-    def obtain_parameters(self, *args, **kwargs):
-        transitions, head_transitions, tail_transitions = zip(*[
-            crf_decoder.obtain_parameters(*args, **kwargs)
-            for crf_decoder in self.crf_decoders
-        ])
-        transitions = torch.cat(transitions, dim=1)
-        head_transitions = torch.cat(head_transitions, dim=1)
-        tail_transitions = torch.cat(tail_transitions, dim=1)
-        return transitions, head_transitions, tail_transitions
