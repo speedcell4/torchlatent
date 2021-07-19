@@ -161,16 +161,11 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
             f'num_conjugates={self.num_conjugates}',
         ])
 
-    def prepare_indices(self, emissions: PackedSequence, tags: Optional[PackedSequence] = None,
+    def compile_indices(self, emissions: PackedSequence, tags: Optional[PackedSequence] = None,
                         indices: Optional[TreeReduceIndices] = None, **kwargs):
         assert emissions.data.dim() == 3, f'{emissions.data.dim()} != {3}'
-        assert emissions.data.size()[1] == self.num_conjugates, f'{emissions.data.size()[1]} != {self.num_conjugates}'
-        assert emissions.data.size()[2] == self.num_tags, f'{emissions.data.size()[2]} != {self.num_tags}'
         if tags is not None:
             assert tags.data.dim() == 2, f'{tags.data.dim()} != {2}'
-            assert tags.data.size()[0] == emissions.data.size()[0], \
-                f'{tags.data.size()[0]} != {emissions.data.size()[0]}'
-            assert tags.data.size()[1] == self.num_conjugates, f'{tags.data.size()[1]} != {self.num_conjugates}'
 
         if indices is None:
             batch_sizes = emissions.batch_sizes.to(device=emissions.data.device)
@@ -183,7 +178,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
 
     def forward(self, emissions: PackedSequence, tags: Optional[PackedSequence] = None,
                 indices: Optional[TreeReduceIndices] = None, **kwargs):
-        indices = self.prepare_indices(emissions=emissions, tags=tags, indices=indices)
+        indices = self.compile_indices(emissions=emissions, tags=tags, indices=indices)
         transitions, head_transitions, tail_transitions = self.obtain_parameters(
             emissions=emissions, tags=tags, indices=indices,
         )
