@@ -1,7 +1,7 @@
 # TorchLatent
 
 ![Unit Tests](https://github.com/speedcell4/torchlatent/workflows/Unit%20Tests/badge.svg)
-![Upload Python Package](https://github.com/speedcell4/torchlatent/workflows/Upload%20Python%20Package/badge.svg)
+[![PyPI version](https://badge.fury.io/py/torchlatent.svg)](https://badge.fury.io/py/torchlatent)
 [![Downloads](https://pepy.tech/badge/torchrua)](https://pepy.tech/project/torchrua)
 
 ## Requirements
