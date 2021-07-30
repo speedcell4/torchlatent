@@ -20,17 +20,16 @@ from torch.nn.utils.rnn import pack_sequence
 
 from torchlatent.crf import CrfDecoder
 
-num_tags = 7
+num_tags = 3
 num_conjugates = 1
 
 decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates)
 
 emissions = pack_sequence([
-    torch.randn((5, num_conjugates, num_tags)),
-    torch.randn((2, num_conjugates, num_tags)),
-    torch.randn((3, num_conjugates, num_tags)),
+    torch.randn((5, num_conjugates, num_tags), requires_grad=True),
+    torch.randn((2, num_conjugates, num_tags), requires_grad=True),
+    torch.randn((3, num_conjugates, num_tags), requires_grad=True),
 ], enforce_sorted=False)
-emissions.data.requires_grad_(True)
 
 tags = pack_sequence([
     torch.randint(0, num_tags, (5, num_conjugates)),
@@ -38,22 +37,46 @@ tags = pack_sequence([
     torch.randint(0, num_tags, (3, num_conjugates)),
 ], enforce_sorted=False)
 
-print(decoder.fit(emissions, tags))
-# tensor([[-10.7137],
-#         [ -6.3496],
-#         [ -7.9656]], grad_fn=<SubBackward0>)
+print(decoder.fit(emissions=emissions, tags=tags))
+# tensor([[-6.7424],
+#         [-5.1288],
+#         [-2.7283]], grad_fn=<SubBackward0>)
 
-print(decoder.decode(emissions))
-# PackedSequence(data=tensor([[0],
-#         [4],
-#         [6],
+print(decoder.decode(emissions=emissions))
+# PackedSequence(data=tensor([[2],
 #         [0],
-#         [4],
-#         [2],
 #         [1],
-#         [1],
+#         [0],
 #         [2],
-#         [5]]), batch_sizes=tensor([3, 3, 2, 1, 1]), sorted_indices=tensor([0, 2, 1]), unsorted_indices=tensor([0, 2, 1]))
+#         [0],
+#         [2],
+#         [0],
+#         [1],
+#         [2]]), 
+#         batch_sizes=tensor([3, 3, 2, 1, 1]),
+#         sorted_indices=tensor([0, 2, 1]),
+#         unsorted_indices=tensor([0, 2, 1]))
+
+print(decoder.marginals(emissions=emissions))
+# tensor([[[0.1040, 0.1001, 0.7958]],
+#
+#         [[0.5736, 0.0784, 0.3479]],
+#
+#         [[0.0932, 0.8797, 0.0271]],
+#
+#         [[0.6558, 0.0472, 0.2971]],
+#
+#         [[0.2740, 0.1109, 0.6152]],
+#
+#         [[0.4811, 0.2163, 0.3026]],
+#
+#         [[0.2321, 0.3478, 0.4201]],
+#
+#         [[0.4987, 0.1986, 0.3027]],
+#
+#         [[0.2029, 0.5888, 0.2083]],
+#
+#         [[0.2802, 0.2358, 0.4840]]], grad_fn=<AddBackward0>)
 ```
 
 ## Latent Structures and Utilities
