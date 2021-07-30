@@ -2,6 +2,7 @@
 
 ![Unit Tests](https://github.com/speedcell4/torchlatent/workflows/Unit%20Tests/badge.svg)
 ![Upload Python Package](https://github.com/speedcell4/torchlatent/workflows/Upload%20Python%20Package/badge.svg)
+[![Downloads](https://pepy.tech/badge/torchrua)](https://pepy.tech/project/torchrua)
 
 ## Requirements
 
@@ -12,7 +13,7 @@
 
 `python3 -m pip torchlatent`
 
-## Quickstart
+## Usage
 
 ```python
 import torch
