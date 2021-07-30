@@ -1,56 +1,69 @@
-from typing import List
-
 import torch
-from hypothesis import strategies as st
-from torch.nn.utils.rnn import pack_sequence
 
-MAX_BATCH_SIZE = 7
-TOTAL_LENGTH = 11
-MAX_NUM_TAGS = 13
+from hypothesis import strategies as st
+
+if torch.cuda.is_available():
+    MAX_BATCH_SIZE = 120
+    TINY_BATCH_SIZE = 24
+
+    MAX_TOKEN_SIZE = 512
+    TINY_TOKEN_SIZE = 12
+
+    MAX_NUM_TAGS = 100
+    MAX_NUM_CONJUGATES = 16
+
+else:
+    MAX_BATCH_SIZE = 12
+    TINY_BATCH_SIZE = 6
+
+    MAX_TOKEN_SIZE = 24
+    TINY_TOKEN_SIZE = 12
+
+    MAX_NUM_TAGS = 12
+    MAX_NUM_CONJUGATES = 6
 
 
 @st.composite
 def devices(draw):
     if not torch.cuda.is_available():
-        return torch.device('cpu')
+        device = torch.device('cpu')
     else:
-        return torch.device('cuda')
+        device = torch.device('cuda:0')
+    _ = torch.empty((1,), device=device)
+    return device
 
 
 @st.composite
-def batch_size_integers(draw, max_batch_size: int = MAX_BATCH_SIZE):
-    return draw(st.integers(min_value=1, max_value=max_batch_size))
+def batch_sizes(draw, max_value: int = MAX_BATCH_SIZE):
+    return draw(st.integers(min_value=1, max_value=max_value))
 
 
 @st.composite
-def length_integers(draw, total_length: int = TOTAL_LENGTH):
-    return draw(st.integers(min_value=1, max_value=total_length))
+def batch_size_lists(draw, max_batch_size: int = MAX_BATCH_SIZE):
+    return [
+        draw(batch_sizes(max_value=max_batch_size))
+        for _ in range(draw(batch_sizes(max_value=max_batch_size)))
+    ]
 
 
 @st.composite
-def length_lists(draw, total_length: int = TOTAL_LENGTH, batch_sizes: int = MAX_BATCH_SIZE):
-    return draw(st.lists(length_integers(total_length=total_length), min_size=1, max_size=batch_sizes))
+def token_sizes(draw, max_value: int = MAX_TOKEN_SIZE):
+    return draw(st.integers(min_value=1, max_value=max_value))
 
 
 @st.composite
-def num_tags_integers(draw, max_num_tags: int = MAX_NUM_TAGS):
-    return draw(st.integers(min_value=1, max_value=max_num_tags))
-
-
-
-
-
-@st.composite
-def tags_packs(draw, lengths: List[int], num_tags: int):
-    return pack_sequence([
-        torch.randint(0, num_tags, (length,), device=draw(devices()))
-        for length in lengths
-    ], enforce_sorted=False)
+def token_size_lists(draw, max_token_size: int = MAX_TOKEN_SIZE, max_batch_size: int = MAX_BATCH_SIZE):
+    return [
+        draw(token_sizes(max_value=max_token_size))
+        for _ in range(draw(batch_sizes(max_value=max_batch_size)))
+    ]
 
 
 @st.composite
-def conjugated_tags_packs(draw, lengths: List[int], num_tags: int, num_conjugates: int):
-    return pack_sequence([
-        torch.randint(0, num_tags, (length, num_conjugates), device=draw(devices()))
-        for length in lengths
-    ], enforce_sorted=False)
+def tag_sizes(draw, max_value: int = MAX_NUM_TAGS):
+    return draw(st.integers(min_value=1, max_value=max_value))
+
+
+@st.composite
+def conjugate_sizes(draw, max_value: int = MAX_NUM_CONJUGATES):
+    return draw(st.integers(min_value=1, max_value=max_value))

@@ -7,19 +7,19 @@ from torch.nn.utils.rnn import PackedSequence
 
 def broadcast_packed_sequences(
         emissions: PackedSequence, tags: Optional[PackedSequence],
-        transitions: Tensor, start_transitions: Tensor, end_transitions: Tensor):
+        transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor):
     """
         Args:
             emissions: [t1, c1, n]
             tags: [t1, c1]
             transitions: [t2, c2, n, n]
-            start_transitions: [h2, c2, n]
-            end_transitions: [h2, c2, n]
+            head_transitions: [h2, c2, n]
+            tail_transitions: [h2, c2, n]
     """
     assert emissions.data.dim() == 3, f'{emissions.data.size()}'
     assert transitions.dim() == 4, f'{transitions.size()}'
-    assert start_transitions.dim() == 3, f'{start_transitions.size()}'
-    assert end_transitions.dim() == 3, f'{end_transitions.size()}'
+    assert head_transitions.dim() == 3, f'{head_transitions.size()}'
+    assert tail_transitions.dim() == 3, f'{tail_transitions.size()}'
 
     _, _, n = emissions.data.size()
     h = emissions.batch_sizes[0].item()
@@ -41,7 +41,7 @@ def broadcast_packed_sequences(
 
     emissions = emissions._replace(data=emissions.data.expand((t, c, n)))
     transitions = transitions.expand((t, c, n, n))
-    start_transitions = start_transitions.expand((h, c, n))
-    end_transitions = end_transitions.expand((h, c, n))
+    head_transitions = head_transitions.expand((h, c, n))
+    tail_transitions = tail_transitions.expand((h, c, n))
 
-    return emissions, tags, transitions, start_transitions, end_transitions, (t, c, n, h)
+    return emissions, tags, transitions, head_transitions, tail_transitions, (t, c, n, h)
