@@ -17,7 +17,7 @@
 
 ```python
 import torch
-from torch.nn.utils.rnn import pack_sequence
+from torchrua import pack_sequence
 
 from torchlatent.crf import CrfDecoder
 
@@ -30,13 +30,13 @@ emissions = pack_sequence([
     torch.randn((5, num_conjugates, num_tags), requires_grad=True),
     torch.randn((2, num_conjugates, num_tags), requires_grad=True),
     torch.randn((3, num_conjugates, num_tags), requires_grad=True),
-], enforce_sorted=False)
+])
 
 tags = pack_sequence([
     torch.randint(0, num_tags, (5, num_conjugates)),
     torch.randint(0, num_tags, (2, num_conjugates)),
     torch.randint(0, num_tags, (3, num_conjugates)),
-], enforce_sorted=False)
+])
 
 print(decoder.fit(emissions=emissions, tags=tags))
 # tensor([[-6.7424],
@@ -53,7 +53,7 @@ print(decoder.decode(emissions=emissions))
 #         [2],
 #         [0],
 #         [1],
-#         [2]]), 
+#         [2]]),
 #         batch_sizes=tensor([3, 3, 2, 1, 1]),
 #         sorted_indices=tensor([0, 2, 1]),
 #         unsorted_indices=tensor([0, 2, 1]))
