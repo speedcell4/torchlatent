@@ -12,6 +12,13 @@ from torchrua import select_head, select_last, roll_packed_sequence, pad_packed_
 
 from torchlatent.semiring import Semiring, Log, Max
 
+__all__ = [
+    'compute_scores',
+    'compute_partitions',
+    'CrfDistribution',
+    'CrfDecoderABC', 'CrfDecoder',
+]
+
 
 def compute_scores(semiring: Type[Semiring]):
     def _compute_scores(
@@ -230,7 +237,7 @@ class CrfDecoder(CrfDecoderABC):
 
     @torch.no_grad()
     def reset_parameters(self) -> None:
-        bound = 1 / self.num_tags
+        bound = 0.01
         init.uniform_(self.transitions, -bound, +bound)
         init.uniform_(self.head_transitions, -bound, +bound)
         init.uniform_(self.tail_transitions, -bound, +bound)
