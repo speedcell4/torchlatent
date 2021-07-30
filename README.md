@@ -79,9 +79,14 @@ print(decoder.marginals(emissions=emissions))
 #         [[0.2802, 0.2358, 0.4840]]], grad_fn=<AddBackward0>)
 ```
 
-## Latent Structures and Utilities
+## Latent Structures
 
-- [x] Conditional Random Fields (CRF)
+- [ ] Conditional Random Fields (CRF)
+    - [x] Conjugated
+    - [ ] Dynamic Transition Matrix
+    - [ ] Second-order
+    - [ ] Variant-order
+- [ ] Tree CRF
 - [ ] Non-Projective Dependency Tree (Matrix-tree Theorem)
 - [ ] Probabilistic Context-free Grammars (PCFG)
 - [ ] Dependency Model with Valence (DMV)
