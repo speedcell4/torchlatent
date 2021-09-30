@@ -109,7 +109,7 @@ class Max(Semiring):
 
     @classmethod
     def sum(cls, tensor: Tensor, dim: int, keepdim: bool = False) -> Tensor:
-        return torch.max(tensor, dim=dim, keepdim=keepdim)[0]
+        return torch.max(tensor, dim=dim, keepdim=keepdim).values
 
     @classmethod
     def prod(cls, tensor: Tensor, dim: int, keepdim: bool = False) -> Tensor:
