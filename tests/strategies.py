@@ -4,23 +4,17 @@ from hypothesis import strategies as st
 
 if torch.cuda.is_available():
     MAX_BATCH_SIZE = 120
-    TINY_BATCH_SIZE = 24
-
     MAX_TOKEN_SIZE = 512
-    TINY_TOKEN_SIZE = 12
-
     MAX_NUM_TAGS = 100
     MAX_NUM_CONJUGATES = 16
-
 else:
     MAX_BATCH_SIZE = 12
-    TINY_BATCH_SIZE = 6
-
     MAX_TOKEN_SIZE = 24
-    TINY_TOKEN_SIZE = 12
-
     MAX_NUM_TAGS = 12
     MAX_NUM_CONJUGATES = 6
+
+TINY_BATCH_SIZE = 6
+TINY_TOKEN_SIZE = 12
 
 
 @st.composite
