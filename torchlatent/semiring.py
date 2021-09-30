@@ -1,8 +1,10 @@
 import torch
 from torch import Tensor
+from torch.types import Device
+from torchrua.scatter import scatter_add, scatter_max, scatter_mul, scatter_logsumexp
 from torchrua.tree_reduction import tree_reduce_sequence, TreeReduceIndices
 
-from torchlatent.functional import logsumexp
+from torchlatent.functional import logsumexp, logaddexp
 
 __all__ = [
     'Semiring',
@@ -15,11 +17,16 @@ class Semiring(object):
     one: float
 
     @classmethod
-    def eye_like(cls, tensor: Tensor) -> Tensor:
+    def eye_like(cls, tensor: Tensor, dtype: torch.dtype = None, device: Device = None) -> Tensor:
+        if dtype is None:
+            dtype = tensor.dtype
+        if device is None:
+            device = tensor.device
+
         *_, n = tensor.size()
-        eye = torch.full((n, n), fill_value=cls.zero, dtype=tensor.dtype, device=tensor.device)
-        index = torch.arange(n, dtype=torch.long, device=tensor.device)
-        eye[index, index] = cls.one
+        eye = torch.full((n, n), fill_value=cls.zero, dtype=dtype, device=device)
+        idx = torch.arange(n, dtype=torch.long, device=device)
+        eye[idx, idx] = cls.one
         return eye
 
     @classmethod
@@ -39,8 +46,16 @@ class Semiring(object):
         raise NotImplementedError
 
     @classmethod
+    def scatter_add(cls, tensor: Tensor, index: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @classmethod
+    def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @classmethod
     def bmm(cls, x: Tensor, y: Tensor) -> Tensor:
-        return cls.sum(cls.mul(x.unsqueeze(-1), y.unsqueeze(-3)), dim=-2, keepdim=False)
+        return cls.sum(cls.mul(x[..., :, :, None], y[..., None, :, :]), dim=-2, keepdim=False)
 
     @classmethod
     def reduce(cls, tensor: Tensor, indices: TreeReduceIndices) -> Tensor:
@@ -67,6 +82,14 @@ class Std(Semiring):
     def prod(cls, tensor: Tensor, dim: int, keepdim: bool = False) -> Tensor:
         return torch.prod(tensor, dim=dim, keepdim=keepdim)
 
+    @classmethod
+    def scatter_add(cls, tensor: Tensor, index: Tensor) -> Tensor:
+        return scatter_add(tensor=tensor, index=index)
+
+    @classmethod
+    def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
+        return scatter_mul(tensor=tensor, index=index)
+
 
 class Log(Semiring):
     zero = -float('inf')
@@ -74,14 +97,7 @@ class Log(Semiring):
 
     @classmethod
     def add(cls, x: Tensor, y: Tensor) -> Tensor:
-        with torch.no_grad():
-            m = torch.maximum(x, y)
-            m = m.masked_fill_(torch.isneginf(m), 0.)
-
-        z = (x - m).exp_() + (y - m).exp_()
-        mask = z == 0
-        z = z.masked_fill_(mask, 1.).log_()
-        return z.masked_fill_(mask, -float('inf')).add_(m)
+        return logaddexp(x, y)
 
     @classmethod
     def mul(cls, x: Tensor, y: Tensor) -> Tensor:
@@ -94,6 +110,14 @@ class Log(Semiring):
     @classmethod
     def prod(cls, tensor: Tensor, dim: int, keepdim: bool = False) -> Tensor:
         return torch.sum(tensor, dim=dim, keepdim=keepdim)
+
+    @classmethod
+    def scatter_add(cls, tensor: Tensor, index: Tensor) -> Tensor:
+        return scatter_logsumexp(tensor=tensor, index=index)
+
+    @classmethod
+    def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
+        return scatter_add(tensor=tensor, index=index)
 
 
 class Max(Semiring):
@@ -110,8 +134,16 @@ class Max(Semiring):
 
     @classmethod
     def sum(cls, tensor: Tensor, dim: int, keepdim: bool = False) -> Tensor:
-        return torch.max(tensor, dim=dim, keepdim=keepdim)[0]
+        return torch.max(tensor, dim=dim, keepdim=keepdim).values
 
     @classmethod
     def prod(cls, tensor: Tensor, dim: int, keepdim: bool = False) -> Tensor:
         return torch.sum(tensor, dim=dim, keepdim=keepdim)
+
+    @classmethod
+    def scatter_add(cls, tensor: Tensor, index: Tensor) -> Tensor:
+        return scatter_max(tensor=tensor, index=index)
+
+    @classmethod
+    def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
+        return scatter_add(tensor=tensor, index=index)

@@ -92,15 +92,15 @@ def test_crf_decoder_fit(device, token_sizes, num_conjugate, num_tags):
         for token_size in token_sizes
     ], device=device)
 
-    third_party_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
-    rua_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
-    third_party_decoder.reset_parameters_with_(decoder=rua_decoder)
+    actual_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
+    expected_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
+    expected_decoder.reset_parameters_with_(decoder=actual_decoder)
 
-    target = third_party_decoder.fit(emissions=emissions, tags=tags)
-    prediction = rua_decoder.fit(emissions=emissions, tags=tags)
+    actual = actual_decoder.fit(emissions=emissions, tags=tags)
+    expected = expected_decoder.fit(emissions=emissions, tags=tags)
 
-    assert_close(prediction, target)
-    assert_grad_close(prediction, target, (emissions.data,))
+    assert_close(actual=actual, expected=expected)
+    assert_grad_close(actual=actual, expected=expected, inputs=(emissions.data,))
 
 
 @given(
@@ -115,11 +115,11 @@ def test_crf_decoder_decode(device, token_sizes, num_conjugate, num_tags):
         for token_size in token_sizes
     ], device=device)
 
-    third_party_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
-    rua_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
-    third_party_decoder.reset_parameters_with_(decoder=rua_decoder)
+    actual_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
+    expected_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
+    expected_decoder.reset_parameters_with_(decoder=actual_decoder)
 
-    target = third_party_decoder.decode(emissions=emissions)
-    prediction = rua_decoder.decode(emissions=emissions)
+    expected = expected_decoder.decode(emissions=emissions)
+    actual = actual_decoder.decode(emissions=emissions)
 
-    assert_packed_equal(prediction, target)
+    assert_packed_equal(actual=actual, expected=expected)

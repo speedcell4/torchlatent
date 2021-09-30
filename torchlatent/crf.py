@@ -7,8 +7,8 @@ from torch import nn, autograd
 from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import TreeReduceIndices, tree_reduce_packed_indices
-from torchrua import select_head, select_last, roll_packed_sequence, pad_packed_sequence
+from torchrua import TreeReduceIndices, tree_reduce_packed_indices, batch_sizes_to_ptr
+from torchrua import select_head, select_last, roll_packed_sequence
 
 from torchlatent.semiring import Semiring, Log, Max
 
@@ -41,17 +41,12 @@ def compute_scores(semiring: Type[Semiring]):
         transition_tail_scores = tail_transitions[t[:h, None], c[None, :], tail]  # [h, c]
 
         transition_scores[:h] = transition_head_scores  # [h, c]
-        scores, _ = pad_packed_sequence(
-            PackedSequence(
-                data=semiring.mul(emission_scores, transition_scores),
-                batch_sizes=emissions.batch_sizes,
-                sorted_indices=None,
-                unsorted_indices=None,
-            ),
-            batch_first=False,
+
+        _, batch_ptr, _ = batch_sizes_to_ptr(batch_sizes=emissions.batch_sizes)
+        scores = semiring.mul(
+            semiring.scatter_mul(semiring.mul(emission_scores, transition_scores), index=batch_ptr),
+            transition_tail_scores,
         )
-        scores = semiring.prod(scores, dim=0)
-        scores = semiring.mul(scores, transition_tail_scores)
 
         if emissions.unsorted_indices is not None:
             scores = scores[emissions.unsorted_indices]
