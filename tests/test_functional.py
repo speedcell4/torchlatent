@@ -1,9 +1,8 @@
 import torch
 from hypothesis import given, strategies as st
-from torch.testing import assert_close
 
 from tests.strategies import devices, token_size_lists, TINY_TOKEN_SIZE, TINY_BATCH_SIZE
-from tests.utils import assert_grad_close
+from tests.utils import assert_close, assert_grad_close
 from torchlatent.functional import logaddexp, logsumexp
 
 
