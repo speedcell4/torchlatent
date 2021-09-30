@@ -2,8 +2,22 @@ import torch
 from torch import Tensor
 
 __all__ = [
+    'logaddexp',
     'logsumexp',
 ]
+
+
+def logaddexp(x: Tensor, y: Tensor) -> Tensor:
+    with torch.no_grad():
+        m = torch.maximum(x, y)
+        m = m.masked_fill_(torch.isneginf(m), 0.)
+
+    z = (x - m).exp_() + (y - m).exp_()
+    mask = z == 0
+    z = z.masked_fill_(mask, 1.).log_()
+    z = z.masked_fill_(mask, -float('inf')).add_(m)
+
+    return z
 
 
 def logsumexp(tensor: Tensor, dim: int, keepdim: bool = False) -> Tensor:

@@ -3,7 +3,7 @@ from torch import Tensor
 from torch.types import Device
 from torchrua.tree_reduction import tree_reduce_sequence, TreeReduceIndices
 
-from torchlatent.functional import logsumexp
+from torchlatent.functional import logsumexp, logaddexp
 
 __all__ = [
     'Semiring',
@@ -80,14 +80,7 @@ class Log(Semiring):
 
     @classmethod
     def add(cls, x: Tensor, y: Tensor) -> Tensor:
-        with torch.no_grad():
-            m = torch.maximum(x, y)
-            m = m.masked_fill_(torch.isneginf(m), 0.)
-
-        z = (x - m).exp_() + (y - m).exp_()
-        mask = z == 0
-        z = z.masked_fill_(mask, 1.).log_()
-        return z.masked_fill_(mask, -float('inf')).add_(m)
+        return logaddexp(x, y)
 
     @classmethod
     def mul(cls, x: Tensor, y: Tensor) -> Tensor:
