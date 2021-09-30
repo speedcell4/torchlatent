@@ -55,7 +55,7 @@ class Semiring(object):
 
     @classmethod
     def bmm(cls, x: Tensor, y: Tensor) -> Tensor:
-        return cls.sum(cls.mul(x.unsqueeze(-1), y.unsqueeze(-3)), dim=-2, keepdim=False)
+        return cls.sum(cls.mul(x[..., :, :, None], y[..., None, :, :]), dim=-2, keepdim=False)
 
     @classmethod
     def reduce(cls, tensor: Tensor, indices: TreeReduceIndices) -> Tensor:
@@ -147,10 +147,3 @@ class Max(Semiring):
     @classmethod
     def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
         return scatter_add(tensor=tensor, index=index)
-
-
-if __name__ == '__main__':
-    x = torch.randn((10,))
-    idx = torch.randint(0, 4, (10,))
-
-    print(Std.scatter_add(x, idx))
