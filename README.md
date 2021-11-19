@@ -91,3 +91,12 @@ print(decoder.marginals(emissions=emissions))
 - [ ] Non-Projective Dependency Tree (Matrix-tree Theorem)
 - [ ] Probabilistic Context-free Grammars (PCFG)
 - [ ] Dependency Model with Valence (DMV)
+
+## Citation
+
+@misc{wang2020torchlatent,
+    title={TorchLatent: High Performance Structured Prediction in PyTorch},
+    author={Yiran Wang},
+    year={2020},
+    howpublished = "\url{https://github.com/speedcell4/torchlatent}"
+}
