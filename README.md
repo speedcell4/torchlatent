@@ -94,9 +94,11 @@ print(decoder.marginals(emissions=emissions))
 
 ## Citation
 
+```
 @misc{wang2020torchlatent,
     title={TorchLatent: High Performance Structured Prediction in PyTorch},
     author={Yiran Wang},
     year={2020},
     howpublished = "\url{https://github.com/speedcell4/torchlatent}"
 }
+```
