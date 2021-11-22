@@ -13,15 +13,15 @@ from torchrua import select_head, select_last, roll_packed_sequence
 from torchlatent.semiring import Semiring, Log, Max
 
 __all__ = [
-    'compute_scores',
-    'compute_partitions',
+    'compute_packed_sequence_scores',
+    'compute_packed_sequence_partitions',
     'CrfDistribution',
     'CrfDecoderABC', 'CrfDecoder',
 ]
 
 
-def compute_scores(semiring: Type[Semiring]):
-    def _compute_scores(
+def compute_packed_sequence_scores(semiring: Type[Semiring]):
+    def _compute_packed_sequence_scores(
             emissions: PackedSequence, tags: PackedSequence,
             transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor) -> Tensor:
         device = transitions.device
@@ -43,45 +43,43 @@ def compute_scores(semiring: Type[Semiring]):
         transition_scores[:h] = transition_head_scores  # [h, c]
 
         _, batch_ptr, _ = batch_sizes_to_ptr(batch_sizes=emissions.batch_sizes)
-        scores = semiring.mul(
-            semiring.scatter_mul(semiring.mul(emission_scores, transition_scores), index=batch_ptr),
-            transition_tail_scores,
-        )
+        scores = semiring.mul(emission_scores, transition_scores)
+        scores = semiring.scatter_mul(scores, index=batch_ptr)
+        scores = semiring.mul(scores, transition_tail_scores)
 
         if emissions.unsorted_indices is not None:
             scores = scores[emissions.unsorted_indices]
 
         return scores
 
-    return _compute_scores
+    return _compute_packed_sequence_scores
 
 
-def compute_partitions(semiring: Type[Semiring]):
-    def _compute_partitions(
+def compute_packed_sequence_partitions(semiring: Type[Semiring]):
+    def _compute_packed_sequence_partitions(
             emissions: PackedSequence, indices: TreeReduceIndices,
             transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor, eye: Tensor) -> Tensor:
         h = emissions.batch_sizes[0].item()
         t = torch.arange(transitions.size()[0], device=transitions.device)  # [t]
         c = torch.arange(transitions.size()[1], device=transitions.device)  # [c]
 
-        scores = semiring.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
-        scores[:h] = eye[None, None, :, :]
-        scores = semiring.reduce(tensor=scores, indices=indices)
+        emission_scores = semiring.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
+        emission_scores[:h] = eye[None, None, :, :]
+        emission_scores = semiring.reduce(tensor=emission_scores, indices=indices)
 
         emission_head_scores = emissions.data[:h, :, None, :]
         transition_head_scores = head_transitions[t[:h, None], c[None, :], None, :]
         transition_tail_scores = tail_transitions[t[:h, None], c[None, :], :, None]
 
-        scores = semiring.bmm(
-            semiring.bmm(semiring.mul(transition_head_scores, emission_head_scores), scores),
-            transition_tail_scores,
-        )[..., 0, 0]
+        scores = semiring.mul(transition_head_scores, emission_head_scores)
+        scores = semiring.bmm(scores, emission_scores)
+        scores = semiring.bmm(scores, transition_tail_scores)[..., 0, 0]
 
         if emissions.unsorted_indices is not None:
             scores = scores[emissions.unsorted_indices]
         return scores
 
-    return _compute_partitions
+    return _compute_packed_sequence_partitions
 
 
 class CrfDistribution(object):
@@ -96,7 +94,7 @@ class CrfDistribution(object):
         self.tail_transitions = tail_transitions
 
     def semiring_scores(self, semiring: Type[Semiring], tags: PackedSequence) -> Tensor:
-        return compute_scores(semiring=semiring)(
+        return compute_packed_sequence_scores(semiring=semiring)(
             emissions=self.emissions, tags=tags,
             transitions=self.transitions,
             head_transitions=self.head_transitions,
@@ -104,7 +102,7 @@ class CrfDistribution(object):
         )
 
     def semiring_partitions(self, semiring: Type[Semiring]) -> Tensor:
-        return compute_partitions(semiring=semiring)(
+        return compute_packed_sequence_partitions(semiring=semiring)(
             emissions=self.emissions, indices=self.indices,
             transitions=self.transitions,
             head_transitions=self.head_transitions,
