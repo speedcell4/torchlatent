@@ -3,15 +3,18 @@ from typing import Tuple
 import torch
 from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
-from torch.testing import assert_close, assert_equal
+from torch.testing import assert_close
 
 __all__ = [
     'assert_close',
-    'assert_equal',
     'assert_grad_close',
     'assert_packed_close',
     'assert_packed_equal',
 ]
+
+
+def assert_equal(actual: Tensor, expected: Tensor, **kwargs) -> None:
+    assert torch.equal(actual, expected)
 
 
 def assert_grad_close(actual: Tensor, expected: Tensor, inputs: Tuple[Tensor, ...]) -> None:
