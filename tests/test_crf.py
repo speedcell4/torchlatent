@@ -4,7 +4,8 @@ from hypothesis import given
 from torch import Tensor
 from torch import nn
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import pad_packed_sequence, token_sizes_to_mask, pack_sequence
+from torchrua import pad_packed_sequence, token_sizes_to_mask, pack_sequence, cat_sequence, cat_packed_sequence, \
+    pack_catted_sequence
 
 from tests.strategies import devices, token_size_lists, conjugate_sizes, tag_sizes
 from tests.utils import assert_close, assert_grad_close, assert_packed_equal
@@ -81,7 +82,7 @@ class ThirdPartyCrfDecoder(nn.Module):
     num_conjugate=conjugate_sizes(),
     num_tags=tag_sizes(),
 )
-def test_crf_decoder_fit(device, token_sizes, num_conjugate, num_tags):
+def test_crf_packed_fit(device, token_sizes, num_conjugate, num_tags):
     emissions = pack_sequence([
         torch.randn((token_size, num_conjugate, num_tags), device=device, requires_grad=True)
         for token_size in token_sizes
@@ -109,7 +110,7 @@ def test_crf_decoder_fit(device, token_sizes, num_conjugate, num_tags):
     num_conjugate=conjugate_sizes(),
     num_tags=tag_sizes(),
 )
-def test_crf_decoder_decode(device, token_sizes, num_conjugate, num_tags):
+def test_crf_packed_decode(device, token_sizes, num_conjugate, num_tags):
     emissions = pack_sequence([
         torch.randn((token_size, num_conjugate, num_tags), device=device, requires_grad=True)
         for token_size in token_sizes
@@ -123,3 +124,36 @@ def test_crf_decoder_decode(device, token_sizes, num_conjugate, num_tags):
     actual = actual_decoder.decode(emissions=emissions)
 
     assert_packed_equal(actual=actual, expected=expected)
+
+
+@given(
+    device=devices(),
+    token_sizes=token_size_lists(),
+    num_conjugate=conjugate_sizes(),
+    num_tags=tag_sizes(),
+)
+def test_crf_catted_fit(device, token_sizes, num_conjugate, num_tags):
+    emissions = [
+        torch.randn((token_size, num_conjugate, num_tags), device=device, requires_grad=True)
+        for token_size in token_sizes
+    ]
+    tags = [
+        torch.randint(0, num_tags, (token_size, num_conjugate), device=device)
+        for token_size in token_sizes
+    ]
+
+    packed_emissions = pack_sequence(emissions, device=device)
+    packed_tags = pack_sequence(tags, device=device)
+
+    catted_emissions = cat_sequence(emissions, device=device)
+    catted_tags = cat_sequence(tags, device=device)
+
+    actual_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
+    expected_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
+    expected_decoder.reset_parameters_with_(decoder=actual_decoder)
+
+    actual = actual_decoder.fit(emissions=catted_emissions, tags=catted_tags)
+    expected = expected_decoder.fit(emissions=packed_emissions, tags=packed_tags)
+
+    assert_close(actual=actual, expected=expected)
+    assert_grad_close(actual=actual, expected=expected, inputs=tuple(emissions))
