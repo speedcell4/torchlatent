@@ -65,7 +65,6 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
     def forward(self, emissions: Sequence, tags: Optional[Sequence] = None,
                 indices: Optional[TreeReduceIndices] = None, **kwargs):
         indices = self.compile_indices(emissions=emissions, tags=tags, indices=indices)
-        print(f'indices => {indices}')
         transitions, head_transitions, tail_transitions = self.obtain_parameters(
             emissions=emissions, tags=tags, indices=indices,
         )

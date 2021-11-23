@@ -4,8 +4,7 @@ from hypothesis import given
 from torch import Tensor
 from torch import nn
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import pad_packed_sequence, token_sizes_to_mask, pack_sequence, cat_sequence, cat_packed_sequence, \
-    pack_catted_sequence
+from torchrua import pad_packed_sequence, token_sizes_to_mask, pack_sequence, cat_sequence, pack_catted_sequence
 
 from tests.strategies import devices, token_size_lists, conjugate_sizes, tag_sizes
 from tests.utils import assert_close, assert_grad_close, assert_packed_equal
@@ -142,11 +141,11 @@ def test_crf_catted_fit(device, token_sizes, num_conjugate, num_tags):
         for token_size in token_sizes
     ]
 
-    packed_emissions = pack_sequence(emissions, device=device)
-    packed_tags = pack_sequence(tags, device=device)
-
     catted_emissions = cat_sequence(emissions, device=device)
+    packed_emissions = pack_sequence(emissions, device=device)
+
     catted_tags = cat_sequence(tags, device=device)
+    packed_tags = pack_sequence(tags, device=device)
 
     actual_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
     expected_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
@@ -157,3 +156,29 @@ def test_crf_catted_fit(device, token_sizes, num_conjugate, num_tags):
 
     assert_close(actual=actual, expected=expected)
     assert_grad_close(actual=actual, expected=expected, inputs=tuple(emissions))
+
+
+@given(
+    device=devices(),
+    token_sizes=token_size_lists(),
+    num_conjugate=conjugate_sizes(),
+    num_tags=tag_sizes(),
+)
+def test_crf_catted_decode(device, token_sizes, num_conjugate, num_tags):
+    emissions = [
+        torch.randn((token_size, num_conjugate, num_tags), device=device, requires_grad=True)
+        for token_size in token_sizes
+    ]
+
+    catted_emissions = cat_sequence(emissions, device=device)
+    packed_emissions = pack_sequence(emissions, device=device)
+
+    actual_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
+    expected_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate)
+    expected_decoder.reset_parameters_with_(decoder=actual_decoder)
+
+    expected = expected_decoder.decode(emissions=packed_emissions)
+    actual = actual_decoder.decode(emissions=catted_emissions)
+    actual = pack_catted_sequence(*actual, device=device)
+
+    assert_packed_equal(actual=actual, expected=expected)
