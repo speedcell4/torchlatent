@@ -1,5 +1,5 @@
 from abc import ABCMeta
-from typing import Optional, Tuple, Union, Type
+from typing import Optional, Tuple, Union
 
 import torch
 from torch import Tensor
@@ -19,8 +19,8 @@ __all__ = [
 ]
 
 Sequence = Union[
-    Type[PackedSequence],
-    Type[CattedSequence],
+    PackedSequence,
+    CattedSequence,
 ]
 
 
@@ -65,6 +65,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
     def forward(self, emissions: Sequence, tags: Optional[Sequence] = None,
                 indices: Optional[TreeReduceIndices] = None, **kwargs):
         indices = self.compile_indices(emissions=emissions, tags=tags, indices=indices)
+        print(f'indices => {indices}')
         transitions, head_transitions, tail_transitions = self.obtain_parameters(
             emissions=emissions, tags=tags, indices=indices,
         )

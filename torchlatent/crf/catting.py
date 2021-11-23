@@ -4,8 +4,8 @@ import torch
 from torch import Tensor, autograd
 from torch.distributions.utils import lazy_property
 from torchrua import CattedSequence
-from torchrua import roll_catted_sequence, head_catted_sequence, last_catted_sequence, batch_sizes_to_ptr, \
-    TreeReduceIndices
+from torchrua import TreeReduceIndices, head_catted_indices
+from torchrua import roll_catted_sequence, head_catted_sequence, last_catted_sequence, batch_sizes_to_ptr
 
 from torchlatent.semiring import Semiring, Log, Max
 
@@ -36,11 +36,13 @@ def compute_catted_sequence_scores(semiring: Type[Semiring]):
         transition_head_scores = head_transitions[t[:h, None], c[None, :], head]  # [h, c]
         transition_tail_scores = tail_transitions[t[:h, None], c[None, :], tail]  # [h, c]
 
-        transition_scores[:h] = transition_head_scores  # [h, c]
+        head_indices = head_catted_indices(emissions)
+        transition_scores[head_indices] = transition_head_scores  # [h, c]
 
-        _, batch_ptr, _ = batch_sizes_to_ptr(batch_sizes=emissions.token_sizes)
+        batch_ptr, _, _ = batch_sizes_to_ptr(batch_sizes=emissions.token_sizes)
         scores = semiring.mul(emission_scores, transition_scores)
         scores = semiring.scatter_mul(scores, index=batch_ptr)
+
         scores = semiring.mul(scores, transition_tail_scores)
 
         return scores
@@ -55,12 +57,13 @@ def compute_catted_sequence_partitions(semiring: Type[Semiring]):
         h = emissions.token_sizes.size()[0]
         t = torch.arange(transitions.size()[0], device=transitions.device)  # [t]
         c = torch.arange(transitions.size()[1], device=transitions.device)  # [c]
+        head_indices = head_catted_indices(emissions)
 
         emission_scores = semiring.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
-        emission_scores[:h] = eye[None, None, :, :]
+        emission_scores[head_indices] = eye[None, None, :, :]
         emission_scores = semiring.reduce(tensor=emission_scores, indices=indices)
 
-        emission_head_scores = emissions.data[:h, :, None, :]
+        emission_head_scores = emissions.data[head_indices, :, None, :]
         transition_head_scores = head_transitions[t[:h, None], c[None, :], None, :]
         transition_tail_scores = tail_transitions[t[:h, None], c[None, :], :, None]
 

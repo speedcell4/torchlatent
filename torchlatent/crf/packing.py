@@ -4,6 +4,7 @@ import torch
 from torch import Tensor, autograd
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
+from torchrua import head_indices
 from torchrua import roll_packed_sequence, select_head, select_last, batch_sizes_to_ptr, TreeReduceIndices
 
 from torchlatent.semiring import Semiring, Log, Max
@@ -35,11 +36,13 @@ def compute_packed_sequence_scores(semiring: Type[Semiring]):
         transition_head_scores = head_transitions[t[:h, None], c[None, :], head]  # [h, c]
         transition_tail_scores = tail_transitions[t[:h, None], c[None, :], tail]  # [h, c]
 
-        transition_scores[:h] = transition_head_scores  # [h, c]
+        indices = head_indices(tags, unsort=False)
+        transition_scores[indices] = transition_head_scores  # [h, c]
 
         _, batch_ptr, _ = batch_sizes_to_ptr(batch_sizes=emissions.batch_sizes)
         scores = semiring.mul(emission_scores, transition_scores)
         scores = semiring.scatter_mul(scores, index=batch_ptr)
+
         scores = semiring.mul(scores, transition_tail_scores)
 
         if emissions.unsorted_indices is not None:
