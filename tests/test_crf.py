@@ -42,7 +42,7 @@ class ThirdPartyCrfDecoder(nn.Module):
         for index in range(self.num_conjugates):
             self.decoders[index].transitions.data[::] = decoder.transitions[:, index, :, :]
             self.decoders[index].start_transitions.data[::] = decoder.head_transitions[:, index, :]
-            self.decoders[index].end_transitions.data[::] = decoder.tail_transitions[:, index, :]
+            self.decoders[index].end_transitions.data[::] = decoder.last_transitions[:, index, :]
 
     def fit(self, emissions: PackedSequence, tags: PackedSequence, **kwargs) -> Tensor:
         num_emissions_conjugates = emissions.data.size()[1]
