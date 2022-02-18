@@ -4,11 +4,23 @@ from hypothesis import given
 from torch import Tensor
 from torch import nn
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import pad_packed_sequence, token_sizes_to_mask, pack_sequence, cat_sequence, pack_catted_sequence
+from torch.types import Device
+from torchrua import pad_packed_sequence, pack_sequence, cat_sequence, pack_catted_sequence, pad_catted_indices
 
 from tests.strategies import devices, token_size_lists, conjugate_sizes, tag_sizes
 from tests.utils import assert_close, assert_grad_close, assert_packed_equal
 from torchlatent.crf import CrfDecoder
+
+
+@torch.no_grad()
+def token_sizes_to_mask(sizes: Tensor, batch_first: bool, device: Device = None) -> Tensor:
+    if device is None:
+        device = sizes.device
+
+    size, ptr = pad_catted_indices(sizes, batch_first=batch_first, device=device)
+    mask = torch.zeros(size, device=device, dtype=torch.bool)
+    mask[ptr] = True
+    return mask
 
 
 class ThirdPartyCrfDecoder(nn.Module):
@@ -39,7 +51,7 @@ class ThirdPartyCrfDecoder(nn.Module):
 
         emissions, token_sizes = pad_packed_sequence(emissions, batch_first=False)
         tags, _ = pad_packed_sequence(tags, batch_first=False)
-        mask = token_sizes_to_mask(token_sizes=token_sizes, batch_first=False)
+        mask = token_sizes_to_mask(sizes=token_sizes, batch_first=False)
 
         log_probs = []
         for index in range(num_conjugates):
@@ -57,7 +69,7 @@ class ThirdPartyCrfDecoder(nn.Module):
         num_conjugates = max(num_emissions_conjugates, num_decoders_conjugates)
 
         emissions, token_sizes = pad_packed_sequence(emissions, batch_first=False)
-        mask = token_sizes_to_mask(token_sizes=token_sizes, batch_first=False)
+        mask = token_sizes_to_mask(sizes=token_sizes, batch_first=False)
 
         predictions = []
         for index in range(num_conjugates):
