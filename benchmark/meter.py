@@ -15,5 +15,9 @@ class TimeMeter(object):
         self.seconds += (datetime.now() - self.start_tm).total_seconds()
         self.counts += 1
 
+    @property
+    def merit(self) -> float:
+        return self.seconds / max(1, self.counts)
+
     def __repr__(self) -> str:
-        return f'{self.seconds / self.counts:.6f}'
+        return f'{self.merit :.6f}'
