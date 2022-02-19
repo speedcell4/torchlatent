@@ -5,7 +5,7 @@ from torch import Tensor, autograd
 from torch.distributions.utils import lazy_property
 from torchrua import CattedSequence
 from torchrua import TreeReduceIndices, head_catted_indices
-from torchrua import roll_catted_sequence, head_catted_sequence, last_catted_sequence, batch_sizes_to_ptr
+from torchrua import roll_catted_sequence, head_catted_sequence, last_catted_sequence
 
 from torchlatent.semiring import Semiring, Log, Max
 
@@ -19,7 +19,7 @@ __all__ = [
 def compute_catted_sequence_scores(semiring: Type[Semiring]):
     def _compute_catted_sequence_scores(
             emissions: CattedSequence, tags: CattedSequence,
-            transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor) -> Tensor:
+            transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> Tensor:
         device = transitions.device
 
         emission_scores = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t, c]
@@ -30,20 +30,20 @@ def compute_catted_sequence_scores(semiring: Type[Semiring]):
 
         x, y = roll_catted_sequence(tags, shifts=1).data, tags.data  # [t, c]
         head = head_catted_sequence(tags)  # [h, c]
-        tail = last_catted_sequence(tags)  # [h, c]
+        last = last_catted_sequence(tags)  # [h, c]
 
         transition_scores = transitions[t[:, None], c[None, :], x, y]  # [t, c]
         transition_head_scores = head_transitions[t[:h, None], c[None, :], head]  # [h, c]
-        transition_tail_scores = tail_transitions[t[:h, None], c[None, :], tail]  # [h, c]
+        transition_last_scores = last_transitions[t[:h, None], c[None, :], last]  # [h, c]
 
-        head_indices = head_catted_indices(emissions)
+        head_indices = head_catted_indices(emissions.token_sizes)
         transition_scores[head_indices] = transition_head_scores  # [h, c]
 
-        batch_ptr, _, _ = batch_sizes_to_ptr(batch_sizes=emissions.token_sizes)
+        batch_ptr = torch.repeat_interleave(emissions.token_sizes)
         scores = semiring.mul(emission_scores, transition_scores)
         scores = semiring.scatter_mul(scores, index=batch_ptr)
 
-        scores = semiring.mul(scores, transition_tail_scores)
+        scores = semiring.mul(scores, transition_last_scores)
 
         return scores
 
@@ -53,11 +53,11 @@ def compute_catted_sequence_scores(semiring: Type[Semiring]):
 def compute_catted_sequence_partitions(semiring: Type[Semiring]):
     def _compute_catted_sequence_partitions(
             emissions: CattedSequence, indices: TreeReduceIndices,
-            transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor, eye: Tensor) -> Tensor:
+            transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor, eye: Tensor) -> Tensor:
         h = emissions.token_sizes.size()[0]
         t = torch.arange(transitions.size()[0], device=transitions.device)  # [t]
         c = torch.arange(transitions.size()[1], device=transitions.device)  # [c]
-        head_indices = head_catted_indices(emissions)
+        head_indices = head_catted_indices(emissions.token_sizes)
 
         emission_scores = semiring.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
         emission_scores[head_indices] = eye[None, None, :, :]
@@ -65,11 +65,11 @@ def compute_catted_sequence_partitions(semiring: Type[Semiring]):
 
         emission_head_scores = emissions.data[head_indices, :, None, :]
         transition_head_scores = head_transitions[t[:h, None], c[None, :], None, :]
-        transition_tail_scores = tail_transitions[t[:h, None], c[None, :], :, None]
+        transition_last_scores = last_transitions[t[:h, None], c[None, :], :, None]
 
         scores = semiring.mul(transition_head_scores, emission_head_scores)
         scores = semiring.bmm(scores, emission_scores)
-        scores = semiring.bmm(scores, transition_tail_scores)[..., 0, 0]
+        scores = semiring.bmm(scores, transition_last_scores)[..., 0, 0]
 
         return scores
 
@@ -78,21 +78,21 @@ def compute_catted_sequence_partitions(semiring: Type[Semiring]):
 
 class CattedCrfDistribution(object):
     def __init__(self, emissions: CattedSequence, indices: TreeReduceIndices,
-                 transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor) -> None:
+                 transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> None:
         super(CattedCrfDistribution, self).__init__()
         self.emissions = emissions
         self.indices = indices
 
         self.transitions = transitions
         self.head_transitions = head_transitions
-        self.tail_transitions = tail_transitions
+        self.last_transitions = last_transitions
 
     def semiring_scores(self, semiring: Type[Semiring], tags: CattedSequence) -> Tensor:
         return compute_catted_sequence_scores(semiring=semiring)(
             emissions=self.emissions, tags=tags,
             transitions=self.transitions,
             head_transitions=self.head_transitions,
-            tail_transitions=self.tail_transitions,
+            last_transitions=self.last_transitions,
         )
 
     def semiring_partitions(self, semiring: Type[Semiring]) -> Tensor:
@@ -100,7 +100,7 @@ class CattedCrfDistribution(object):
             emissions=self.emissions, indices=self.indices,
             transitions=self.transitions,
             head_transitions=self.head_transitions,
-            tail_transitions=self.tail_transitions,
+            last_transitions=self.last_transitions,
             eye=semiring.eye_like(self.transitions),
         )
 

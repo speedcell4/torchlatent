@@ -4,8 +4,8 @@ import torch
 from torch import Tensor, autograd
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import head_indices
-from torchrua import roll_packed_sequence, select_head, select_last, batch_sizes_to_ptr, TreeReduceIndices
+from torchrua import head_packed_indices, TreeReduceIndices
+from torchrua import roll_packed_sequence, head_packed_sequence, last_packed_sequence, major_sizes_to_ptr
 
 from torchlatent.semiring import Semiring, Log, Max
 
@@ -19,7 +19,7 @@ __all__ = [
 def compute_packed_sequence_scores(semiring: Type[Semiring]):
     def _compute_packed_sequence_scores(
             emissions: PackedSequence, tags: PackedSequence,
-            transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor) -> Tensor:
+            transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> Tensor:
         device = transitions.device
 
         emission_scores = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t, c]
@@ -29,21 +29,21 @@ def compute_packed_sequence_scores(semiring: Type[Semiring]):
         c = torch.arange(transitions.size()[1], device=device)  # [c]
 
         x, y = roll_packed_sequence(tags, shifts=1).data, tags.data  # [t, c]
-        head = select_head(tags, unsort=False)  # [h, c]
-        tail = select_last(tags, unsort=False)  # [h, c]
+        head = head_packed_sequence(tags, unsort=False)  # [h, c]
+        last = last_packed_sequence(tags, unsort=False)  # [h, c]
 
         transition_scores = transitions[t[:, None], c[None, :], x, y]  # [t, c]
         transition_head_scores = head_transitions[t[:h, None], c[None, :], head]  # [h, c]
-        transition_tail_scores = tail_transitions[t[:h, None], c[None, :], tail]  # [h, c]
+        transition_last_scores = last_transitions[t[:h, None], c[None, :], last]  # [h, c]
 
-        indices = head_indices(tags, unsort=False)
+        indices = head_packed_indices(tags.batch_sizes)
         transition_scores[indices] = transition_head_scores  # [h, c]
 
-        _, batch_ptr, _ = batch_sizes_to_ptr(batch_sizes=emissions.batch_sizes)
+        batch_ptr, _ = major_sizes_to_ptr(sizes=emissions.batch_sizes)
         scores = semiring.mul(emission_scores, transition_scores)
         scores = semiring.scatter_mul(scores, index=batch_ptr)
 
-        scores = semiring.mul(scores, transition_tail_scores)
+        scores = semiring.mul(scores, transition_last_scores)
 
         if emissions.unsorted_indices is not None:
             scores = scores[emissions.unsorted_indices]
@@ -56,7 +56,7 @@ def compute_packed_sequence_scores(semiring: Type[Semiring]):
 def compute_packed_sequence_partitions(semiring: Type[Semiring]):
     def _compute_packed_sequence_partitions(
             emissions: PackedSequence, indices: TreeReduceIndices,
-            transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor, eye: Tensor) -> Tensor:
+            transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor, eye: Tensor) -> Tensor:
         h = emissions.batch_sizes[0].item()
         t = torch.arange(transitions.size()[0], device=transitions.device)  # [t]
         c = torch.arange(transitions.size()[1], device=transitions.device)  # [c]
@@ -67,11 +67,11 @@ def compute_packed_sequence_partitions(semiring: Type[Semiring]):
 
         emission_head_scores = emissions.data[:h, :, None, :]
         transition_head_scores = head_transitions[t[:h, None], c[None, :], None, :]
-        transition_tail_scores = tail_transitions[t[:h, None], c[None, :], :, None]
+        transition_last_scores = last_transitions[t[:h, None], c[None, :], :, None]
 
         scores = semiring.mul(transition_head_scores, emission_head_scores)
         scores = semiring.bmm(scores, emission_scores)
-        scores = semiring.bmm(scores, transition_tail_scores)[..., 0, 0]
+        scores = semiring.bmm(scores, transition_last_scores)[..., 0, 0]
 
         if emissions.unsorted_indices is not None:
             scores = scores[emissions.unsorted_indices]
@@ -82,21 +82,21 @@ def compute_packed_sequence_partitions(semiring: Type[Semiring]):
 
 class PackedCrfDistribution(object):
     def __init__(self, emissions: PackedSequence, indices: TreeReduceIndices,
-                 transitions: Tensor, head_transitions: Tensor, tail_transitions: Tensor) -> None:
+                 transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> None:
         super(PackedCrfDistribution, self).__init__()
         self.emissions = emissions
         self.indices = indices
 
         self.transitions = transitions
         self.head_transitions = head_transitions
-        self.tail_transitions = tail_transitions
+        self.last_transitions = last_transitions
 
     def semiring_scores(self, semiring: Type[Semiring], tags: PackedSequence) -> Tensor:
         return compute_packed_sequence_scores(semiring=semiring)(
             emissions=self.emissions, tags=tags,
             transitions=self.transitions,
             head_transitions=self.head_transitions,
-            tail_transitions=self.tail_transitions,
+            last_transitions=self.last_transitions,
         )
 
     def semiring_partitions(self, semiring: Type[Semiring]) -> Tensor:
@@ -104,7 +104,7 @@ class PackedCrfDistribution(object):
             emissions=self.emissions, indices=self.indices,
             transitions=self.transitions,
             head_transitions=self.head_transitions,
-            tail_transitions=self.tail_transitions,
+            last_transitions=self.last_transitions,
             eye=semiring.eye_like(self.transitions),
         )
 

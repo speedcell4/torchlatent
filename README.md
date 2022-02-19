@@ -13,6 +13,13 @@
 
 `python3 -m pip torchlatent`
 
+## Performance
+
+```
+TorchLatent (0.109244) => 0.003781 0.017763 0.087700 0.063497
+Third       (0.232487) =>          0.103277 0.129209 0.145311
+```
+
 ## Usage
 
 ```python
