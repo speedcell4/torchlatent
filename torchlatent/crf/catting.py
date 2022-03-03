@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, autograd
 from torch.distributions.utils import lazy_property
 from torchrua import CattedSequence
-from torchrua import TreeReduceIndices, head_catted_indices
+from torchrua import ReductionIndices, head_catted_indices
 from torchrua import roll_catted_sequence, head_catted_sequence, last_catted_sequence
 
 from torchlatent.semiring import Semiring, Log, Max
@@ -52,7 +52,7 @@ def compute_catted_sequence_scores(semiring: Type[Semiring]):
 
 def compute_catted_sequence_partitions(semiring: Type[Semiring]):
     def _compute_catted_sequence_partitions(
-            emissions: CattedSequence, indices: TreeReduceIndices,
+            emissions: CattedSequence, indices: ReductionIndices,
             transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor, eye: Tensor) -> Tensor:
         h = emissions.token_sizes.size()[0]
         t = torch.arange(transitions.size()[0], device=transitions.device)  # [t]
@@ -77,7 +77,7 @@ def compute_catted_sequence_partitions(semiring: Type[Semiring]):
 
 
 class CattedCrfDistribution(object):
-    def __init__(self, emissions: CattedSequence, indices: TreeReduceIndices,
+    def __init__(self, emissions: CattedSequence, indices: ReductionIndices,
                  transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> None:
         super(CattedCrfDistribution, self).__init__()
         self.emissions = emissions

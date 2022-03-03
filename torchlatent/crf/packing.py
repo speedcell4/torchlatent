@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, autograd
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import head_packed_indices, TreeReduceIndices
+from torchrua import head_packed_indices, ReductionIndices
 from torchrua import roll_packed_sequence, head_packed_sequence, last_packed_sequence, major_sizes_to_ptr
 
 from torchlatent.semiring import Semiring, Log, Max
@@ -55,7 +55,7 @@ def compute_packed_sequence_scores(semiring: Type[Semiring]):
 
 def compute_packed_sequence_partitions(semiring: Type[Semiring]):
     def _compute_packed_sequence_partitions(
-            emissions: PackedSequence, indices: TreeReduceIndices,
+            emissions: PackedSequence, indices: ReductionIndices,
             transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor, eye: Tensor) -> Tensor:
         h = emissions.batch_sizes[0].item()
         t = torch.arange(transitions.size()[0], device=transitions.device)  # [t]
@@ -81,7 +81,7 @@ def compute_packed_sequence_partitions(semiring: Type[Semiring]):
 
 
 class PackedCrfDistribution(object):
-    def __init__(self, emissions: PackedSequence, indices: TreeReduceIndices,
+    def __init__(self, emissions: PackedSequence, indices: ReductionIndices,
                  transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> None:
         super(PackedCrfDistribution, self).__init__()
         self.emissions = emissions

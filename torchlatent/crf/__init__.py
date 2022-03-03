@@ -5,8 +5,8 @@ import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import init
-from torchrua import TreeReduceIndices, PackedSequence, CattedSequence
-from torchrua import tree_reduce_packed_indices, tree_reduce_catted_indices
+from torchrua import ReductionIndices, PackedSequence, CattedSequence
+from torchrua import reduce_packed_indices, reduce_catted_indices
 
 from torchlatent.crf.catting import CattedCrfDistribution
 from torchlatent.crf.packing import PackedCrfDistribution
@@ -43,7 +43,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
     @staticmethod
     def compile_indices(emissions: Sequence,
                         tags: Optional[Sequence] = None,
-                        indices: Optional[TreeReduceIndices] = None, **kwargs):
+                        indices: Optional[ReductionIndices] = None, **kwargs):
         assert emissions.data.dim() == 3, f'{emissions.data.dim()} != {3}'
         if tags is not None:
             assert tags.data.dim() == 2, f'{tags.data.dim()} != {2}'
@@ -51,11 +51,11 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         if indices is None:
             if isinstance(emissions, PackedSequence):
                 batch_sizes = emissions.batch_sizes.to(device=emissions.data.device)
-                return tree_reduce_packed_indices(batch_sizes=batch_sizes)
+                return reduce_packed_indices(batch_sizes=batch_sizes)
 
             if isinstance(emissions, CattedSequence):
                 token_sizes = emissions.token_sizes.to(device=emissions.data.device)
-                return tree_reduce_catted_indices(token_sizes=token_sizes)
+                return reduce_catted_indices(token_sizes=token_sizes)
 
         return indices
 
@@ -63,7 +63,7 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         return self.transitions, self.head_transitions, self.last_transitions
 
     def forward(self, emissions: Sequence, tags: Optional[Sequence] = None,
-                indices: Optional[TreeReduceIndices] = None, **kwargs):
+                indices: Optional[ReductionIndices] = None, **kwargs):
         indices = self.compile_indices(emissions=emissions, tags=tags, indices=indices)
         transitions, head_transitions, last_transitions = self.obtain_parameters(
             emissions=emissions, tags=tags, indices=indices,
@@ -90,18 +90,18 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
         raise TypeError(f'{type(emissions)} is not supported.')
 
     def fit(self, emissions: Sequence, tags: Sequence,
-            indices: Optional[TreeReduceIndices] = None, **kwargs) -> Tensor:
+            indices: Optional[ReductionIndices] = None, **kwargs) -> Tensor:
         dist, tags = self(emissions=emissions, tags=tags, instr=indices, **kwargs)
 
         return dist.log_prob(tags=tags)
 
     def decode(self, emissions: Sequence,
-               indices: Optional[TreeReduceIndices] = None, **kwargs) -> Sequence:
+               indices: Optional[ReductionIndices] = None, **kwargs) -> Sequence:
         dist, _ = self(emissions=emissions, tags=None, instr=indices, **kwargs)
         return dist.argmax
 
     def marginals(self, emissions: Sequence,
-                  indices: Optional[TreeReduceIndices] = None, **kwargs) -> Tensor:
+                  indices: Optional[ReductionIndices] = None, **kwargs) -> Tensor:
         dist, _ = self(emissions=emissions, tags=None, instr=indices, **kwargs)
         return dist.marginals
 
