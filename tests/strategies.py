@@ -2,19 +2,13 @@ import torch
 
 from hypothesis import strategies as st
 
-if torch.cuda.is_available():
-    MAX_BATCH_SIZE = 120
-    MAX_TOKEN_SIZE = 512
-    MAX_NUM_TAGS = 100
-    MAX_NUM_CONJUGATES = 16
-else:
-    MAX_BATCH_SIZE = 12
-    MAX_TOKEN_SIZE = 24
-    MAX_NUM_TAGS = 12
-    MAX_NUM_CONJUGATES = 6
-
 TINY_BATCH_SIZE = 6
 TINY_TOKEN_SIZE = 12
+
+BATCH_SIZE = 24
+TOKEN_SIZE = 50
+NUM_TAGS = 8
+NUM_CONJUGATES = 5
 
 
 @st.composite
@@ -28,36 +22,13 @@ def devices(draw):
 
 
 @st.composite
-def batch_sizes(draw, max_value: int = MAX_BATCH_SIZE):
-    return draw(st.integers(min_value=1, max_value=max_value))
+def sizes(draw, *size: int, min_size: int = 1):
+    max_size, *size = size
 
-
-@st.composite
-def batch_size_lists(draw, max_batch_size: int = MAX_BATCH_SIZE):
-    return [
-        draw(batch_sizes(max_value=max_batch_size))
-        for _ in range(draw(batch_sizes(max_value=max_batch_size)))
-    ]
-
-
-@st.composite
-def token_sizes(draw, max_value: int = MAX_TOKEN_SIZE):
-    return draw(st.integers(min_value=1, max_value=max_value))
-
-
-@st.composite
-def token_size_lists(draw, max_token_size: int = MAX_TOKEN_SIZE, max_batch_size: int = MAX_BATCH_SIZE):
-    return [
-        draw(token_sizes(max_value=max_token_size))
-        for _ in range(draw(batch_sizes(max_value=max_batch_size)))
-    ]
-
-
-@st.composite
-def tag_sizes(draw, max_value: int = MAX_NUM_TAGS):
-    return draw(st.integers(min_value=1, max_value=max_value))
-
-
-@st.composite
-def conjugate_sizes(draw, max_value: int = MAX_NUM_CONJUGATES):
-    return draw(st.integers(min_value=1, max_value=max_value))
+    if len(size) == 0:
+        return draw(st.integers(min_value=min_size, max_value=max_size))
+    else:
+        return [
+            draw(sizes(*size, min_size=min_size))
+            for _ in range(draw(st.integers(min_value=min_size, max_value=max_size)))
+        ]

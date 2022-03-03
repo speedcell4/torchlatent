@@ -1,8 +1,7 @@
 import torch
 from torch import Tensor
-from torch.types import Device
 from torchrua.scatter import scatter_add, scatter_max, scatter_mul, scatter_logsumexp
-from torchrua.tree_reduction import tree_reduce_sequence, TreeReduceIndices
+from torchrua.reduction import reduce_sequence, ReductionIndices
 
 from torchlatent.functional import logsumexp, logaddexp
 
@@ -17,16 +16,12 @@ class Semiring(object):
     one: float
 
     @classmethod
-    def eye_like(cls, tensor: Tensor, dtype: torch.dtype = None, device: Device = None) -> Tensor:
-        if dtype is None:
-            dtype = tensor.dtype
-        if device is None:
-            device = tensor.device
-
+    def eye_like(cls, tensor: Tensor) -> Tensor:
         *_, n = tensor.size()
-        eye = torch.full((n, n), fill_value=cls.zero, dtype=dtype, device=device)
-        idx = torch.arange(n, dtype=torch.long, device=device)
-        eye[idx, idx] = cls.one
+
+        eye = torch.full((n, n), fill_value=cls.zero, dtype=tensor.dtype, device=tensor.device)
+        index = torch.arange(n, dtype=torch.long, device=tensor.device)
+        eye[index, index] = cls.one
         return eye
 
     @classmethod
@@ -58,8 +53,8 @@ class Semiring(object):
         return cls.sum(cls.mul(x[..., :, :, None], y[..., None, :, :]), dim=-2, keepdim=False)
 
     @classmethod
-    def reduce(cls, tensor: Tensor, indices: TreeReduceIndices) -> Tensor:
-        return tree_reduce_sequence(cls.bmm)(tensor=tensor, indices=indices)
+    def reduce(cls, tensor: Tensor, indices: ReductionIndices) -> Tensor:
+        return reduce_sequence(cls.bmm)(tensor=tensor, indices=indices)
 
 
 class Std(Semiring):
