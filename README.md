@@ -6,8 +6,8 @@
 
 ## Requirements
 
-- Python 3.7
-- PyTorch 1.6.0
+- Python 3.8
+- PyTorch 1.10.2
 
 ## Installation
 
