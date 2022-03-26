@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
-from torchrua.scatter import scatter_add, scatter_max, scatter_mul, scatter_logsumexp
 from torchrua.reduction import reduce_sequence, ReductionIndices
+from torchrua.scatter import scatter_add, scatter_max, scatter_mul, scatter_logsumexp
 
 from torchlatent.functional import logsumexp, logaddexp
 
@@ -54,7 +54,7 @@ class Semiring(object):
 
     @classmethod
     def reduce(cls, tensor: Tensor, indices: ReductionIndices) -> Tensor:
-        return reduce_sequence(cls.bmm)(tensor=tensor, indices=indices)
+        return reduce_sequence(data=tensor, indices=indices, op=cls.bmm)
 
 
 class Std(Semiring):
