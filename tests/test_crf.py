@@ -3,8 +3,8 @@ from hypothesis import given
 from torchrua import pack_sequence, cat_sequence, pack_catted_sequence
 
 from tests.strategies import devices, sizes, BATCH_SIZE, TOKEN_SIZE, NUM_CONJUGATES, NUM_TAGS
-from tests.third_party import ThirdPartyCrfDecoder
 from tests.utils import assert_close, assert_grad_close, assert_packed_sequence_equal
+from third.crf import CrfDecoder as ThirdPartyCrfDecoder
 from torchlatent.crf import CrfDecoder
 
 

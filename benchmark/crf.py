@@ -3,7 +3,7 @@ from torchrua import pack_sequence, cat_sequence
 from tqdm import tqdm
 
 from benchmark.meter import TimeMeter
-from tests.third_party import ThirdPartyCrfDecoder
+from third.crf import CrfDecoder as ThirdPartyCrfDecoder
 from torchlatent.crf import CrfDecoder
 
 

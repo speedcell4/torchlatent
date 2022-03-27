@@ -5,8 +5,6 @@ from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
 from torchrua import pad_catted_indices, pad_packed_sequence, pack_sequence
 
-from torchlatent.crf import CrfDecoder
-
 
 @torch.no_grad()
 def token_sizes_to_mask(sizes: Tensor, batch_first: bool, device: Device = None) -> Tensor:
@@ -19,9 +17,9 @@ def token_sizes_to_mask(sizes: Tensor, batch_first: bool, device: Device = None)
     return mask
 
 
-class ThirdPartyCrfDecoder(nn.Module):
+class CrfDecoder(nn.Module):
     def __init__(self, num_tags: int, num_conjugates: int) -> None:
-        super(ThirdPartyCrfDecoder, self).__init__()
+        super(CrfDecoder, self).__init__()
         self.num_tags = num_tags
         self.num_conjugates = num_conjugates
 
@@ -31,7 +29,7 @@ class ThirdPartyCrfDecoder(nn.Module):
         ])
 
     @torch.no_grad()
-    def reset_parameters_with_(self, decoder: CrfDecoder) -> None:
+    def reset_parameters_with_(self, decoder) -> None:
         assert self.num_tags == decoder.num_tags
         assert self.num_conjugates == decoder.num_conjugates
 
