@@ -50,12 +50,16 @@ class CrfDecoderABC(nn.Module, metaclass=ABCMeta):
 
         if indices is None:
             if isinstance(emissions, PackedSequence):
-                batch_sizes = emissions.batch_sizes.to(device=emissions.data.device)
-                return reduce_packed_indices(batch_sizes=batch_sizes)
+                return reduce_packed_indices(
+                    batch_sizes=emissions.batch_sizes,
+                    device=emissions.data.device,
+                )
 
             if isinstance(emissions, CattedSequence):
-                token_sizes = emissions.token_sizes.to(device=emissions.data.device)
-                return reduce_catted_indices(token_sizes=token_sizes)
+                return reduce_catted_indices(
+                    token_sizes=emissions.token_sizes,
+                    device=emissions.data.device,
+                )
 
         return indices
 
