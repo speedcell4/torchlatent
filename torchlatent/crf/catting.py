@@ -39,9 +39,8 @@ def compute_catted_sequence_scores(semiring: Type[Semiring]):
         head_indices = head_catted_indices(emissions.token_sizes)
         transition_scores[head_indices] = transition_head_scores  # [h, c]
 
-        batch_ptr = torch.repeat_interleave(emissions.token_sizes)
         scores = semiring.mul(emission_scores, transition_scores)
-        scores = semiring.scatter_mul(scores, index=batch_ptr)
+        scores = semiring.segment_mul(scores, sizes=emissions.token_sizes)
 
         scores = semiring.mul(scores, transition_last_scores)
 

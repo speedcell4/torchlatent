@@ -1,5 +1,5 @@
 import torch
-from torchrua import pack_sequence
+from torchrua import pack_sequence, cat_sequence
 from tqdm import tqdm
 
 from benchmark.meter import TimeMeter
@@ -9,8 +9,9 @@ from torchlatent.crf import CrfDecoder
 
 def benchmark_crf(num_tags: int = 50, num_conjugates: int = 1, num_runs: int = 100,
                   batch_size: int = 32, max_token_size: int = 512):
-    j1, f1, b1, d1, = TimeMeter(), TimeMeter(), TimeMeter(), TimeMeter()
-    j2, f2, b2, d2, = TimeMeter(), TimeMeter(), TimeMeter(), TimeMeter()
+    jit1, fwd1, bwd1, dec1, = TimeMeter(), TimeMeter(), TimeMeter(), TimeMeter()
+    jit2, fwd2, bwd2, dec2, = TimeMeter(), TimeMeter(), TimeMeter(), TimeMeter()
+    jit3, fwd3, bwd3, dec3, = TimeMeter(), TimeMeter(), TimeMeter(), TimeMeter()
 
     if torch.cuda.is_available():
         device = torch.device('cuda:0')
@@ -27,36 +28,57 @@ def benchmark_crf(num_tags: int = 50, num_conjugates: int = 1, num_runs: int = 1
     for _ in tqdm(range(num_runs)):
         token_sizes = torch.randint(1, max_token_size + 1, (batch_size,), device=device).detach().cpu().tolist()
 
-        emissions = pack_sequence([
+        catted_emissions = cat_sequence([
             torch.randn((token_size, num_conjugates, num_tags), device=device, requires_grad=True)
             for token_size in token_sizes
         ])
-
-        tags = pack_sequence([
+        catted_tags = cat_sequence([
             torch.randint(0, num_tags, (token_size, num_conjugates), device=device)
             for token_size in token_sizes
         ])
 
-        with j1:
-            indices = decoder.compile_indices(emissions=emissions, tags=tags)
+        packed_emissions = pack_sequence([
+            torch.randn((token_size, num_conjugates, num_tags), device=device, requires_grad=True)
+            for token_size in token_sizes
+        ])
+        packed_tags = pack_sequence([
+            torch.randint(0, num_tags, (token_size, num_conjugates), device=device)
+            for token_size in token_sizes
+        ])
 
-        with f1:
-            loss = decoder.fit(emissions=emissions, tags=tags, indices=indices).neg().mean()
+        with jit1:
+            indices = decoder.compile_indices(emissions=packed_emissions, tags=packed_tags)
 
-        with b1:
-            _, torch.autograd.grad(loss, emissions.data, torch.ones_like(loss))
+        with fwd1:
+            loss = decoder.fit(emissions=packed_emissions, tags=packed_tags, indices=indices).neg().mean()
 
-        with d1:
-            _ = decoder.decode(emissions=emissions, indices=indices)
+        with bwd1:
+            _, torch.autograd.grad(loss, packed_emissions.data, torch.randn_like(loss))
 
-        with f2:
-            loss = third_decoder.fit(emissions=emissions, tags=tags).neg().mean()
+        with dec1:
+            _ = decoder.decode(emissions=packed_emissions, indices=indices)
 
-        with b2:
-            _, torch.autograd.grad(loss, emissions.data, torch.ones_like(loss))
+        with jit2:
+            indices = decoder.compile_indices(emissions=catted_emissions, tags=catted_tags)
 
-        with d2:
-            _ = third_decoder.decode(emissions=emissions)
+        with fwd2:
+            loss = decoder.fit(emissions=catted_emissions, tags=catted_tags, indices=indices).neg().mean()
 
-    print(f'TorchLatent ({j1.merit + f1.merit + b1.merit:.6f}) => {j1} {f1} {b1} {d1}')
-    print(f'Third       ({j2.merit + f2.merit + b2.merit:.6f}) => {j2} {f2} {b2} {d2}')
+        with bwd2:
+            _, torch.autograd.grad(loss, catted_emissions.data, torch.randn_like(loss))
+
+        with dec2:
+            _ = decoder.decode(emissions=catted_emissions, indices=indices)
+
+        with fwd3:
+            loss = third_decoder.fit(emissions=packed_emissions, tags=packed_tags).neg().mean()
+
+        with bwd3:
+            _, torch.autograd.grad(loss, packed_emissions.data, torch.randn_like(loss))
+
+        with dec3:
+            _ = third_decoder.decode(emissions=packed_emissions)
+
+    print(f'PackedLatent ({jit1.merit + fwd1.merit + bwd1.merit:.6f}) => {jit1} {fwd1} {bwd1} {dec1}')
+    print(f'CattedLatent ({jit2.merit + fwd2.merit + bwd2.merit:.6f}) => {jit2} {fwd2} {bwd2} {dec2}')
+    print(f'Third        ({jit3.merit + fwd3.merit + bwd3.merit:.6f}) => {jit3} {fwd3} {bwd3} {dec3}')
