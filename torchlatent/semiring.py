@@ -49,6 +49,14 @@ class Semiring(object):
         raise NotImplementedError
 
     @classmethod
+    def segment_add(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @classmethod
+    def segment_mul(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @classmethod
     def bmm(cls, x: Tensor, y: Tensor) -> Tensor:
         return cls.sum(cls.mul(x[..., :, :, None], y[..., None, :, :]), dim=-2, keepdim=False)
 
@@ -85,6 +93,14 @@ class Std(Semiring):
     def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
         return scatter_mul(tensor=tensor, index=index)
 
+    @classmethod
+    def segment_add(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
+
+    @classmethod
+    def segment_mul(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        raise NotImplementedError
+
 
 class Log(Semiring):
     zero = -float('inf')
@@ -114,6 +130,16 @@ class Log(Semiring):
     def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
         return scatter_add(tensor=tensor, index=index)
 
+    @classmethod
+    def segment_add(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        m = torch.segment_reduce(tensor, reduce='max', lengths=sizes, unsafe=True).detach()
+        z = (tensor - torch.repeat_interleave(m, repeats=sizes)).exp()
+        return torch.segment_reduce(z, reduce='sum', lengths=sizes, unsafe=True).log() + m
+
+    @classmethod
+    def segment_mul(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
+
 
 class Max(Semiring):
     zero = -float('inf')
@@ -142,3 +168,11 @@ class Max(Semiring):
     @classmethod
     def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
         return scatter_add(tensor=tensor, index=index)
+
+    @classmethod
+    def segment_add(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        return torch.segment_reduce(tensor, reduce='max', lengths=sizes, unsafe=True)
+
+    @classmethod
+    def segment_mul(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
