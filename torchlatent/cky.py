@@ -99,7 +99,13 @@ class CkyDistribution(DistributionABC):
 
 
 class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
-    def obtain_scores(self, *args, **kwargs) -> Tensor:
+    def reset_parameters(self) -> None:
+        raise NotImplementedError
+
+    def extra_repr(self) -> str:
+        raise NotImplementedError
+
+    def forward_scores(self, *args, **kwargs) -> Tensor:
         raise NotImplementedError
 
     def forward(self, sequence: Sequence, indices: CkyIndices = None) -> CkyDistribution:
@@ -116,7 +122,7 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
             indices = cky_indices(token_sizes=token_sizes, device=features.device)
 
         return CkyDistribution(
-            scores=self.obtain_scores(features=features),
+            scores=self.forward_scores(features=features),
             indices=indices,
         )
 
@@ -125,19 +131,22 @@ class CkyDecoder(CkyDecoderABC):
     def __init__(self, in_features: int, bias: bool = True) -> None:
         super(CkyDecoder, self).__init__()
 
-        self.score = nn.Bilinear(
-            in1_features=in_features,
-            in2_features=in_features,
-            out_features=1,
-            bias=bias,
-        )
+        self.fc1 = nn.Linear(in_features, in_features, bias=bias)
+        self.fc2 = nn.Linear(in_features, in_features, bias=bias)
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.score.extra_repr()})'
+        return f'{self.__class__.__name__}({self.extra_repr()})'
 
-    def obtain_scores(self, features: Tensor, *args, **kwargs) -> Tensor:
-        x, y = torch.broadcast_tensors(features[:, :, None], features[:, None, :])
-        return self.score(x, y)[..., 0]
+    def extra_repr(self) -> str:
+        return ', '.join([
+            f'in_features={self.fc1.in_features}',
+            f'bias={self.fc1.bias is not None}',
+        ])
+
+    def forward_scores(self, features: Tensor, *args, **kwargs) -> Tensor:
+        x = self.fc1(features[..., :, None, :])
+        y = self.fc2(features[..., None, :, :])
+        return (x[..., None, :] @ y[..., :, None])[..., 0, 0]
 
 
 if __name__ == '__main__':
