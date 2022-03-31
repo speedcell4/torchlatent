@@ -1,11 +1,16 @@
+from abc import ABCMeta
 from typing import Tuple, NamedTuple
 from typing import Type
 
 import torch
 from torch import Tensor
+from torch import nn
 from torch.distributions.utils import lazy_property
+from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
+from torchrua import CattedSequence, pack_sequence
 from torchrua import major_sizes_to_ptr, accumulate_sizes
+from torchrua import pad_packed_sequence, pad_catted_sequence
 
 from torchlatent.abc import DistributionABC
 from torchlatent.semiring import Semiring, Log, Max
@@ -93,9 +98,55 @@ class CkyDistribution(DistributionABC):
         pass
 
 
+class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
+    def obtain_scores(self, *args, **kwargs) -> Tensor:
+        raise NotImplementedError
+
+    def forward(self, sequence: Sequence, indices: CkyIndices = None) -> CkyDistribution:
+        if isinstance(sequence, CattedSequence):
+            features, token_sizes = pad_catted_sequence(sequence, batch_first=True)
+        elif isinstance(sequence, PackedSequence):
+            features, token_sizes = pad_packed_sequence(sequence, batch_first=True)
+        elif isinstance(sequence, tuple) and torch.tensor(sequence[0]) and torch.is_tensor(sequence[1]):
+            features, token_sizes = sequence
+        else:
+            raise KeyError(f'type {type(sequence)} is not supported')
+
+        if indices is None:
+            indices = cky_indices(token_sizes=token_sizes, device=features.device)
+
+        return CkyDistribution(
+            scores=self.obtain_scores(features=features),
+            indices=indices,
+        )
+
+
+class CkyDecoder(CkyDecoderABC):
+    def __init__(self, in_features: int, bias: bool = True) -> None:
+        super(CkyDecoder, self).__init__()
+
+        self.score = nn.Bilinear(
+            in1_features=in_features,
+            in2_features=in_features,
+            out_features=1,
+            bias=bias,
+        )
+
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({self.score.extra_repr()})'
+
+    def obtain_scores(self, features: Tensor, *args, **kwargs) -> Tensor:
+        x, y = torch.broadcast_tensors(features[:, :, None], features[:, None, :])
+        return self.score(x, y)[..., 0]
+
+
 if __name__ == '__main__':
-    ans = CkyDistribution(
-        torch.randn((3, 5, 5), requires_grad=True),
-        cky_indices(torch.tensor([5, 2, 3])),
-    ).max
-    print(ans)
+    e = pack_sequence([
+        torch.randn((5, 3), requires_grad=True),
+        torch.randn((2, 3), requires_grad=True),
+        torch.randn((3, 3), requires_grad=True),
+    ])
+    layer = CkyDecoder(in_features=3, bias=True)
+    dist = layer(e)
+    print(f'layer => {layer}')
+    print(dist.log_partitions)
