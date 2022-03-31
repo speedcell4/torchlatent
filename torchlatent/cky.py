@@ -8,7 +8,7 @@ from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
-from torchrua import CattedSequence, pack_sequence
+from torchrua import CattedSequence
 from torchrua import major_sizes_to_ptr, accumulate_sizes
 from torchrua import pad_packed_sequence, pad_catted_sequence
 
@@ -74,28 +74,41 @@ class CkyDistribution(DistributionABC):
         self.scores = scores
         self.indices = indices
 
-    def log_scores(self, targets: Sequence) -> Tensor:
+    def log_scores(self, value: Sequence) -> Tensor:
         raise NotImplementedError
 
     @lazy_property
     def log_partitions(self) -> Tensor:
-        return cky_partition(data=self.scores, indices=self.indices, semiring=Log)
+        return cky_partition(data=Log.sum(self.scores, dim=-1), indices=self.indices, semiring=Log)
 
     @lazy_property
     def max(self) -> Tensor:
-        return cky_partition(data=self.scores, indices=self.indices, semiring=Max)
+        return cky_partition(data=Max.sum(self.scores, dim=-1), indices=self.indices, semiring=Max)
 
     @lazy_property
     def argmax(self) -> Tensor:
-        pass
+        mask = super(CkyDistribution, self).argmax > 0
+        b, n, _, m = self.scores
+
+        index = torch.arange(n, device=mask.device)
+        x = torch.masked_select(index[None, :, None, None], mask=mask)
+        y = torch.masked_select(index[None, None, :, None], mask=mask)
+
+        index = torch.arange(m, device=mask.device)
+        z = torch.masked_select(index[None, None, None, :], mask=mask)
+        return torch.stack([x, y, z], dim=0)
 
     @lazy_property
-    def log_marginals(self) -> Tensor:
-        pass
+    def marginals(self) -> Tensor:
+        grad, = torch.autograd.grad(
+            self.log_partitions, self.scores, torch.ones_like(self.log_partitions),
+            create_graph=True, only_inputs=True, allow_unused=False,
+        )
+        return grad
 
     @lazy_property
     def entropy(self) -> Tensor:
-        pass
+        raise NotImplementedError
 
 
 class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
@@ -147,15 +160,3 @@ class CkyDecoder(CkyDecoderABC):
         x = self.fc1(features[..., :, None, :])
         y = self.fc2(features[..., None, :, :])
         return (x[..., None, :] @ y[..., :, None])[..., 0, 0]
-
-
-if __name__ == '__main__':
-    e = pack_sequence([
-        torch.randn((5, 3), requires_grad=True),
-        torch.randn((2, 3), requires_grad=True),
-        torch.randn((3, 3), requires_grad=True),
-    ])
-    layer = CkyDecoder(in_features=3, bias=True)
-    dist = layer(e)
-    print(f'layer => {layer}')
-    print(dist.log_partitions)
