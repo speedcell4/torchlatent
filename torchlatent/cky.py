@@ -8,7 +8,7 @@ from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
-from torchrua import CattedSequence
+from torchrua import CattedSequence, cat_packed_indices, transpose_sizes, pack_catted_sequence, pack_sequence
 from torchrua import major_sizes_to_ptr, accumulate_sizes
 from torchrua import pad_packed_sequence, pad_catted_sequence
 
@@ -42,7 +42,8 @@ def cky_indices(token_sizes: Tensor, device: Device = None):
     cache_size, = token_ptr.size()
 
     return CkyIndices(
-        token_size=token_size, cache_size=cache_size,
+        token_size=token_size,
+        cache_size=cache_size,
         src=((y_ptr - x_ptr, z_ptr), (batch_ptr, x_ptr, y_ptr)),
         tgt=(token_sizes - 1, acc_token_sizes),
     )
@@ -51,9 +52,10 @@ def cky_indices(token_sizes: Tensor, device: Device = None):
 def cky_partition(data: Tensor, indices: CkyIndices, semiring: Type[Semiring]) -> Tensor:
     token_size, cache_size, (src1, src2), tgt = indices
 
-    tensor0 = torch.full((token_size, cache_size, *data.size()[3:]), fill_value=semiring.zero, requires_grad=False)
-    tensor1 = torch.full((token_size, cache_size, *data.size()[3:]), fill_value=semiring.zero, requires_grad=False)
-    tensor2 = torch.full((token_size, cache_size, *data.size()[3:]), fill_value=semiring.zero, requires_grad=False)
+    size = (token_size, cache_size, *data.size()[3:])
+    tensor0 = torch.full(size, fill_value=semiring.zero, requires_grad=False)
+    tensor1 = torch.full(size, fill_value=semiring.zero, requires_grad=False)
+    tensor2 = torch.full(size, fill_value=semiring.zero, requires_grad=False)
 
     tensor0[src1] = data[src2]
     tensor1[0, :] = tensor2[-1, :] = tensor0[0, :]
@@ -76,13 +78,25 @@ class CkyDistribution(DistributionABC):
 
     def log_scores(self, value: Sequence) -> Tensor:
         if isinstance(value, CattedSequence):
-            (x_ptr, y_ptr, z_ptr), token_sizes = value
-            _, batch_ptr = major_sizes_to_ptr(sizes=token_sizes)
-            return torch.segment_reduce(
-                self.scores[batch_ptr, x_ptr, y_ptr, z_ptr],
-                reduce='sum', lengths=token_sizes,
+            ptr, token_sizes = value
+            batch_ptr = torch.repeat_interleave(repeats=token_sizes)
+            return Log.segment_mul(
+                self.scores[batch_ptr, ptr[..., 0], ptr[..., 1], ptr[..., 2]],
+                sizes=token_sizes,
             )
-        raise NotImplementedError
+
+        if isinstance(value, PackedSequence):
+            ptr, batch_sizes, _, unsorted_indices = value
+            indices, token_sizes = cat_packed_indices(batch_sizes=batch_sizes, unsorted_indices=unsorted_indices)
+            batch_ptr = torch.repeat_interleave(repeats=token_sizes)
+            ptr = ptr[indices]
+
+            return Log.segment_mul(
+                self.scores[batch_ptr, ptr[..., 0], ptr[..., 1], ptr[..., 2]],
+                sizes=token_sizes,
+            )
+
+        raise KeyError(f'type {type(value)} is not supported')
 
     @lazy_property
     def log_partitions(self) -> Tensor:
@@ -103,7 +117,7 @@ class CkyDistribution(DistributionABC):
 
         index = torch.arange(m, device=mask.device)
         z = torch.masked_select(index[None, None, None, :], mask=mask)
-        return torch.stack([x, y, z], dim=0)
+        return torch.stack([x, y, z], dim=-1)
 
     @lazy_property
     def marginals(self) -> Tensor:
@@ -123,6 +137,9 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
         raise NotImplementedError
 
     def extra_repr(self) -> str:
+        raise NotImplementedError
+
+    def forward_scores(self, features: Tensor, *args, **kwargs) -> Tensor:
         raise NotImplementedError
 
     def forward(self, sequence: Sequence, indices: CkyIndices = None) -> CkyDistribution:
@@ -147,31 +164,52 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
         dist = self.forward(sequence=sequence, indices=indices)
         return dist.log_partitions - dist.log_scores(value=value)
 
-    def decode(self, sequence: Sequence, indices: CkyIndices) -> Sequence:
+    def decode(self, sequence: Sequence, indices: CkyIndices = None) -> Sequence:
         dist = self.forward(sequence=sequence, indices=indices)
+
         if isinstance(sequence, CattedSequence):
             return CattedSequence(data=dist.argmax, token_sizes=sequence.token_sizes * 2 - 1)
-        else:
-            raise NotImplementedError
+
+        if isinstance(sequence, PackedSequence):
+            token_sizes = transpose_sizes(sizes=sequence.batch_sizes)[sequence.unsorted_indices] * 2 - 1
+            return pack_catted_sequence(sequence=dist.argmax, token_sizes=token_sizes)
+
+        raise KeyError(f'type {type(sequence)} is not supported')
 
 
 class CkyDecoder(CkyDecoderABC):
-    def __init__(self, in_features: int, bias: bool = True) -> None:
+    def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
         super(CkyDecoder, self).__init__()
 
-        self.fc1 = nn.Linear(in_features, in_features, bias=bias)
-        self.fc2 = nn.Linear(in_features, in_features, bias=bias)
+        self.fc = nn.Bilinear(
+            in1_features=in_features,
+            in2_features=in_features,
+            out_features=out_features,
+            bias=bias,
+        )
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.extra_repr()})'
 
     def extra_repr(self) -> str:
         return ', '.join([
-            f'in_features={self.fc1.in_features}',
+            f'in_features={self.fc.in_features}',
+            f'in_features={self.fc.out_features}',
             f'bias={self.fc1.bias is not None}',
         ])
 
     def forward_scores(self, features: Tensor, *args, **kwargs) -> Tensor:
-        x = self.fc1(features[..., :, None, :])
-        y = self.fc2(features[..., None, :, :])
-        return (x[..., None, :] @ y[..., :, None])[..., 0, 0]
+        x, y = torch.broadcast_tensors(features[..., :, None, :], features[..., None, :, :])
+        return self.fc(x, y)
+
+
+if __name__ == '__main__':
+    decoder = CkyDecoder(2, 3)
+    e = pack_sequence([
+        torch.randn((5, 2), requires_grad=True),
+        torch.randn((2, 2), requires_grad=True),
+        torch.randn((3, 2), requires_grad=True),
+    ])
+    dist = decoder.forward(e)
+    print(dist.max)
+    print(dist.log_scores(decoder.decode(e)))
