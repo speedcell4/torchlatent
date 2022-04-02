@@ -75,6 +75,13 @@ class CkyDistribution(DistributionABC):
         self.indices = indices
 
     def log_scores(self, value: Sequence) -> Tensor:
+        if isinstance(value, CattedSequence):
+            (x_ptr, y_ptr, z_ptr), token_sizes = value
+            _, batch_ptr = major_sizes_to_ptr(sizes=token_sizes)
+            return torch.segment_reduce(
+                self.scores[batch_ptr, x_ptr, y_ptr, z_ptr],
+                reduce='sum', lengths=token_sizes,
+            )
         raise NotImplementedError
 
     @lazy_property
@@ -88,7 +95,7 @@ class CkyDistribution(DistributionABC):
     @lazy_property
     def argmax(self) -> Tensor:
         mask = super(CkyDistribution, self).argmax > 0
-        b, n, _, m = self.scores
+        b, n, _, m = mask.size()
 
         index = torch.arange(n, device=mask.device)
         x = torch.masked_select(index[None, :, None, None], mask=mask)
@@ -118,9 +125,6 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
     def extra_repr(self) -> str:
         raise NotImplementedError
 
-    def forward_scores(self, *args, **kwargs) -> Tensor:
-        raise NotImplementedError
-
     def forward(self, sequence: Sequence, indices: CkyIndices = None) -> CkyDistribution:
         if isinstance(sequence, CattedSequence):
             features, token_sizes = pad_catted_sequence(sequence, batch_first=True)
@@ -138,6 +142,17 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
             scores=self.forward_scores(features=features),
             indices=indices,
         )
+
+    def fit(self, sequence: Sequence, value: Sequence, indices: CkyIndices = None) -> Tensor:
+        dist = self.forward(sequence=sequence, indices=indices)
+        return dist.log_partitions - dist.log_scores(value=value)
+
+    def decode(self, sequence: Sequence, indices: CkyIndices) -> Sequence:
+        dist = self.forward(sequence=sequence, indices=indices)
+        if isinstance(sequence, CattedSequence):
+            return CattedSequence(data=dist.argmax, token_sizes=sequence.token_sizes * 2 - 1)
+        else:
+            raise NotImplementedError
 
 
 class CkyDecoder(CkyDecoderABC):
@@ -160,4 +175,3 @@ class CkyDecoder(CkyDecoderABC):
         x = self.fc1(features[..., :, None, :])
         y = self.fc2(features[..., None, :, :])
         return (x[..., None, :] @ y[..., :, None])[..., 0, 0]
-
