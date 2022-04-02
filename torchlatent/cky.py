@@ -160,3 +160,4 @@ class CkyDecoder(CkyDecoderABC):
         x = self.fc1(features[..., :, None, :])
         y = self.fc2(features[..., None, :, :])
         return (x[..., None, :] @ y[..., :, None])[..., 0, 0]
+
