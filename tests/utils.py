@@ -30,12 +30,14 @@ def assert_grad_close(
         actual, inputs, grad,
         create_graph=False,
         allow_unused=allow_unused,
+        retain_graph=True,
     )
 
     expected_grads = torch.autograd.grad(
         expected, inputs, grad,
         create_graph=False,
         allow_unused=allow_unused,
+        retain_graph=True,
     )
 
     for actual_grad, expected_grad in zip(actual_grads, expected_grads):
