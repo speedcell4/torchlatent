@@ -276,7 +276,7 @@ class CrfDecoder(CrfDecoderABC):
 
     def fit(self, emissions: Sequence, targets: Sequence, indices: CrfIndices = None) -> Tensor:
         dist = self.forward(emissions=emissions, indices=indices)
-        return dist.log_partitions - dist.log_scores(targets=targets)
+        return dist.log_prob(targets=targets).neg()
 
     def decode(self, emissions: Sequence, indices: CrfIndices = None) -> Sequence:
         dist = self.forward(emissions=emissions, indices=indices)

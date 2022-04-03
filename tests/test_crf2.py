@@ -4,7 +4,7 @@ from hypothesis import given
 from torch.testing import assert_close
 from torchrua import cat_sequence, pad_sequence, pad_catted_indices, pad_packed_indices, pack_sequence
 
-from tests.strategies import devices, sizes, TOKEN_SIZE, TINY_BATCH_SIZE
+from tests.strategies import devices, sizes, TOKEN_SIZE, TINY_BATCH_SIZE, NUM_CONJUGATES, TINY_TOKEN_SIZE
 from tests.utils import assert_grad_close, assert_equal
 from torchlatent.crf2 import CrfDecoder
 
@@ -173,3 +173,87 @@ def test_crf_packed_decode(device, token_sizes, num_tags):
     assert_equal(actual=actual.batch_sizes, expected=excepted.batch_sizes)
     assert_equal(actual=actual.sorted_indices, expected=excepted.sorted_indices)
     assert_equal(actual=actual.unsorted_indices, expected=excepted.unsorted_indices)
+
+
+@given(
+    device=devices(),
+    token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE),
+    num_conjugates=sizes(NUM_CONJUGATES),
+    num_tags=sizes(TINY_TOKEN_SIZE),
+)
+def test_conjugated_catted_fit(device, token_sizes, num_conjugates, num_tags):
+    decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates)
+    decoders = [CrfDecoder(num_tags=num_tags, num_conjugates=1) for _ in range(num_conjugates)]
+
+    for index in range(num_conjugates):
+        decoder.transitions.data[:, index] = decoders[index].transitions
+        decoder.head_transitions.data[:, index] = decoders[index].head_transitions
+        decoder.last_transitions.data[:, index] = decoders[index].last_transitions
+
+    emissions = [[
+        torch.randn((token_size, 1, num_tags), requires_grad=True, device=device)
+        for token_size in token_sizes
+    ] for _ in range(num_conjugates)]
+
+    targets = [[
+        torch.randint(0, num_tags, (token_size, 1), device=device)
+        for token_size in token_sizes
+    ] for _ in range(num_conjugates)]
+
+    actual = decoder.fit(
+        emissions=cat_sequence([torch.cat(sequences, dim=1) for sequences in zip(*emissions)], device=device),
+        targets=cat_sequence([torch.cat(sequences, dim=1) for sequences in zip(*targets)], device=device),
+    )
+
+    expected = torch.cat([
+        decoders[index].fit(
+            emissions=cat_sequence(emissions[index], device=device),
+            targets=cat_sequence(targets[index], device=device),
+        )
+        for index in range(num_conjugates)
+    ], dim=1)
+
+    assert_close(actual=actual, expected=expected)
+    assert_grad_close(actual=actual, expected=expected, inputs=[x for xs in emissions for x in xs], check_stride=False)
+
+
+@given(
+    device=devices(),
+    token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE),
+    num_conjugates=sizes(NUM_CONJUGATES),
+    num_tags=sizes(TINY_TOKEN_SIZE),
+)
+def test_conjugated_packed_fit(device, token_sizes, num_conjugates, num_tags):
+    decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates)
+    decoders = [CrfDecoder(num_tags=num_tags, num_conjugates=1) for _ in range(num_conjugates)]
+
+    for index in range(num_conjugates):
+        decoder.transitions.data[:, index] = decoders[index].transitions
+        decoder.head_transitions.data[:, index] = decoders[index].head_transitions
+        decoder.last_transitions.data[:, index] = decoders[index].last_transitions
+
+    emissions = [[
+        torch.randn((token_size, 1, num_tags), requires_grad=True, device=device)
+        for token_size in token_sizes
+    ] for _ in range(num_conjugates)]
+
+    targets = [[
+        torch.randint(0, num_tags, (token_size, 1), device=device)
+        for token_size in token_sizes
+    ] for _ in range(num_conjugates)]
+
+    actual = decoder.fit(
+        emissions=pack_sequence([torch.cat(sequences, dim=1) for sequences in zip(*emissions)], device=device),
+        targets=pack_sequence([torch.cat(sequences, dim=1) for sequences in zip(*targets)], device=device),
+    )
+
+    expected = torch.cat([
+        decoders[index].fit(
+            emissions=pack_sequence(emissions[index], device=device),
+            targets=pack_sequence(targets[index], device=device),
+        )
+        for index in range(num_conjugates)
+    ], dim=1)
+
+    assert_close(actual=actual, expected=expected)
+    assert_grad_close(actual=actual, expected=expected, inputs=[x for xs in emissions for x in xs], check_stride=False)
