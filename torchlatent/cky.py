@@ -8,12 +8,12 @@ from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
-from torchrua import CattedSequence, cat_packed_indices, transpose_sizes, pack_catted_sequence, pack_sequence
+from torchrua import CattedSequence, transpose_sizes, pack_catted_sequence
 from torchrua import major_sizes_to_ptr, accumulate_sizes
 from torchrua import pad_packed_sequence, pad_catted_sequence
 
 from torchlatent.abc import DistributionABC
-from torchlatent.semiring import Semiring, Log, Max
+from torchlatent.semiring import Semiring, Log, Max, segment_indices
 from torchlatent.types import Sequence
 
 
@@ -76,27 +76,13 @@ class CkyDistribution(DistributionABC):
         self.scores = scores
         self.indices = indices
 
-    def log_scores(self, value: Sequence) -> Tensor:
-        if isinstance(value, CattedSequence):
-            ptr, token_sizes = value
-            batch_ptr = torch.repeat_interleave(repeats=token_sizes)
-            return Log.segment_mul(
-                self.scores[batch_ptr, ptr[..., 0], ptr[..., 1], ptr[..., 2]],
-                sizes=token_sizes,
-            )
-
-        if isinstance(value, PackedSequence):
-            ptr, batch_sizes, _, unsorted_indices = value
-            indices, token_sizes = cat_packed_indices(batch_sizes=batch_sizes, unsorted_indices=unsorted_indices)
-            batch_ptr = torch.repeat_interleave(repeats=token_sizes)
-            ptr = ptr[indices]
-
-            return Log.segment_mul(
-                self.scores[batch_ptr, ptr[..., 0], ptr[..., 1], ptr[..., 2]],
-                sizes=token_sizes,
-            )
-
-        raise KeyError(f'type {type(value)} is not supported')
+    def log_scores(self, sequence: Sequence) -> Tensor:
+        indices, batch_ptr, sizes = segment_indices(sequence=sequence)
+        data = sequence.data[indices]
+        return Log.segment_prod(
+            tensor=self.scores[batch_ptr, data[..., 0], data[..., 1], data[..., 2]],
+            sizes=sizes,
+        )
 
     @lazy_property
     def log_partitions(self) -> Tensor:
@@ -162,7 +148,7 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
 
     def fit(self, sequence: Sequence, value: Sequence, indices: CkyIndices = None) -> Tensor:
         dist = self.forward(sequence=sequence, indices=indices)
-        return dist.log_partitions - dist.log_scores(value=value)
+        return dist.log_partitions - dist.log_scores(sequence=value)
 
     def decode(self, sequence: Sequence, indices: CkyIndices = None) -> Sequence:
         dist = self.forward(sequence=sequence, indices=indices)
@@ -201,15 +187,3 @@ class CkyDecoder(CkyDecoderABC):
     def forward_scores(self, features: Tensor, *args, **kwargs) -> Tensor:
         x, y = torch.broadcast_tensors(features[..., :, None, :], features[..., None, :, :])
         return self.fc(x, y)
-
-
-if __name__ == '__main__':
-    decoder = CkyDecoder(2, 3)
-    e = pack_sequence([
-        torch.randn((5, 2), requires_grad=True),
-        torch.randn((2, 2), requires_grad=True),
-        torch.randn((3, 2), requires_grad=True),
-    ])
-    dist = decoder.forward(e)
-    print(dist.max)
-    print(dist.log_scores(decoder.decode(e)))

@@ -40,7 +40,7 @@ def compute_catted_sequence_scores(semiring: Type[Semiring]):
         transition_scores[head_indices] = transition_head_scores  # [h, c]
 
         scores = semiring.mul(emission_scores, transition_scores)
-        scores = semiring.segment_mul(scores, sizes=emissions.token_sizes)
+        scores = semiring.segment_prod(scores, sizes=emissions.token_sizes)
 
         scores = semiring.mul(scores, transition_last_scores)
 
