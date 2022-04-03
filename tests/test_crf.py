@@ -52,8 +52,8 @@ def test_crf_catted_fit(device, token_sizes, num_tags):
         mask=mask.byte(), reduction='none',
     ).neg()
 
-    assert_close(actual=actual, expected=excepted)
-    assert_grad_close(actual=actual, expected=excepted, inputs=emissions)
+    assert_close(actual=actual, expected=excepted, rtol=1e-4, atol=1e-4)
+    assert_grad_close(actual=actual, expected=excepted, inputs=emissions, rtol=1e-4, atol=1e-4)
 
 
 @given(
@@ -142,8 +142,8 @@ def test_crf_packed_fit(device, token_sizes, num_tags):
         mask=mask.byte(), reduction='none',
     ).neg()
 
-    assert_close(actual=actual, expected=excepted)
-    assert_grad_close(actual=actual, expected=excepted, inputs=emissions)
+    assert_close(actual=actual, expected=excepted, rtol=1e-4, atol=1e-4)
+    assert_grad_close(actual=actual, expected=excepted, inputs=emissions, rtol=1e-4, atol=1e-4)
 
 
 @given(
@@ -234,8 +234,12 @@ def test_conjugated_catted_fit(device, token_sizes, num_conjugates, num_tags):
         for index in range(num_conjugates)
     ], dim=1)
 
-    assert_close(actual=actual, expected=expected)
-    assert_grad_close(actual=actual, expected=expected, inputs=[x for xs in emissions for x in xs], check_stride=False)
+    assert_close(actual=actual, expected=expected, rtol=1e-4, atol=1e-4)
+    assert_grad_close(
+        actual=actual, expected=expected,
+        inputs=[x for xs in emissions for x in xs],
+        rtol=1e-4, atol=1e-4, check_stride=False,
+    )
 
 
 @given(
@@ -281,7 +285,11 @@ def test_conjugated_packed_fit(device, token_sizes, num_conjugates, num_tags):
     ], dim=1)
 
     assert_close(actual=actual, expected=expected)
-    assert_grad_close(actual=actual, expected=expected, inputs=[x for xs in emissions for x in xs], check_stride=False)
+    assert_grad_close(
+        actual=actual, expected=expected,
+        inputs=[x for xs in emissions for x in xs],
+        rtol=1e-4, atol=1e-4, check_stride=False,
+    )
 
 
 @given(
@@ -325,5 +333,5 @@ def test_dynamic_fit(device, token_sizes, num_conjugates, num_tags):
         targets=cat_sequence(targets, device=device),
     )
 
-    assert_close(actual=packed_fit, expected=catted_fit)
-    assert_grad_close(actual=catted_fit, expected=catted_fit, inputs=emissions)
+    assert_close(actual=packed_fit, expected=catted_fit, rtol=1e-4, atol=1e-4)
+    assert_grad_close(actual=catted_fit, expected=catted_fit, inputs=emissions, rtol=1e-4, atol=1e-4)
