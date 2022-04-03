@@ -89,11 +89,13 @@ def crf_segment_reduce(emissions: Sequence, targets: Sequence,
                        transitions: Tuple[Tensor, Tensor, Tensor], semiring: Type[Semiring]) -> Tensor:
     if isinstance(emissions, CattedSequence):
         emissions, token_sizes = emissions
+        targets, _ = targets
         prev, curr, unsorted_indices, head, last, sizes = crf_segment_catted_indices(
             token_sizes=token_sizes, device=emissions.device,
         )
     elif isinstance(emissions, PackedSequence):
         emissions, batch_sizes, _, unsorted_indices = emissions
+        targets, _, _, _ = targets
         prev, curr, unsorted_indices, head, last, sizes = crf_segment_packed_indices(
             batch_sizes=batch_sizes, unsorted_indices=unsorted_indices, device=emissions.device,
         )
@@ -117,12 +119,12 @@ def crf_partition(emissions: Sequence, indices: ReductionIndices,
                   transitions: Tuple[Tensor, Tensor, Tensor], semiring: Type[Semiring]):
     if isinstance(emissions, CattedSequence):
         emissions, token_sizes = emissions
-        prev, curr, unsorted_indices, head, last, sizes = crf_segment_catted_indices(
+        _, _, unsorted_indices, head, _, _ = crf_segment_catted_indices(
             token_sizes=token_sizes, device=emissions.device,
         )
     elif isinstance(emissions, PackedSequence):
         emissions, batch_sizes, _, unsorted_indices = emissions
-        prev, curr, unsorted_indices, head, last, sizes = crf_segment_packed_indices(
+        _, _, unsorted_indices, head, _, _ = crf_segment_packed_indices(
             batch_sizes=batch_sizes, unsorted_indices=unsorted_indices, device=emissions.device,
         )
     else:
@@ -242,28 +244,35 @@ if __name__ == '__main__':
     decoder1.head_transitions.data = decoder2.start_transitions[None, None, :]
     decoder1.last_transitions.data = decoder2.end_transitions[None, None, :]
 
-    sequence = [
+    ss = [
         torch.randn((5, num_tags), requires_grad=True),
         torch.randn((2, num_tags), requires_grad=True),
         torch.randn((3, num_tags), requires_grad=True),
     ]
+    tt = [
+        torch.randint(0, num_tags, (5,)),
+        torch.randint(0, num_tags, (2,)),
+        torch.randint(0, num_tags, (3,)),
+    ]
 
-    token_sizes = torch.tensor([5, 2, 3])
+    e1 = cat_sequence([s[:, None] for s in ss])
+    t1 = cat_sequence([t[:, None] for t in tt])
 
-    e1 = cat_sequence([s[:, None, :] for s in sequence])
-
-    e2, _ = pad_sequence(sequence, batch_first=False)
-    size, ptr = pad_catted_indices(
-        e1.token_sizes, False,
-        # e1.sorted_indices, e1.unsorted_indices
-    )
+    e2, _ = pad_sequence(ss, batch_first=False)
+    t2, _ = pad_sequence(tt, batch_first=False)
+    size, ptr = pad_catted_indices(e1.token_sizes, batch_first=False)
     mask = torch.zeros(size, dtype=torch.bool)
     mask[ptr] = True
 
     dist = decoder1.forward(e1)
     lhs = dist.log_partitions[:, 0]
-    rhs = decoder2._compute_normalizer(e2, mask)
+    rhs = decoder2._compute_normalizer(e2, mask=mask)
     print(f'lhs => {lhs}')
     print(f'rhs => {rhs}')
+    print(torch.allclose(lhs, rhs))
 
+    lhs = dist.log_scores(t1)[:, 0]
+    rhs = decoder2._compute_score(e2, t2, mask=mask)
+    print(f'lhs => {lhs}')
+    print(f'rhs => {rhs}')
     print(torch.allclose(lhs, rhs))
