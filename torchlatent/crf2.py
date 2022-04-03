@@ -10,9 +10,9 @@ from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
-from torchrua import reduce_catted_indices, reduce_packed_indices
+from torchrua import reduce_catted_indices, reduce_packed_indices, pad_catted_indices, cat_sequence
 from torchrua import roll_catted_indices, CattedSequence, head_catted_indices, last_catted_indices, head_packed_indices, \
-    last_packed_indices, accumulate_sizes, ReductionIndices, pack_sequence, pad_sequence, pad_packed_indices
+    last_packed_indices, accumulate_sizes, ReductionIndices, pad_sequence
 
 from torchlatent.abc import DistributionABC
 from torchlatent.semiring import segment_catted_indices, segment_packed_indices, Semiring, Log, Max
@@ -100,23 +100,8 @@ def crf_segment_reduce(emissions: Sequence, targets: Sequence,
     else:
         raise NotImplementedError
 
-    if isinstance(targets, CattedSequence):
-        t, c, h = broadcast_catted_shapes(targets, transitions=transitions)
-        targets, _ = targets
-    elif isinstance(targets, PackedSequence):
-        t, c, h = broadcast_packed_shapes(targets, transitions=transitions)
-        targets, _, _, _ = targets
-    else:
-        raise NotImplementedError
-
     transitions, head_transitions, last_transitions = transitions
-    emissions = emissions.expand((t, c, -1))
-    targets = targets.expand((t, c))
-    transitions = transitions.expand((t, c, -1, -1))
-    head_transitions = head_transitions.expand((h, c, -1))
-    last_transitions = last_transitions.expand((h, c, -1))
-
-    c = torch.arange(c, device=emissions.device)
+    c = torch.arange(transitions.size()[1], device=emissions.device)
 
     emissions = emissions[curr[:, None], c[None, :], targets[curr]]
     transitions = transitions[curr[:, None], c[None, :], targets[prev], targets[curr]]
@@ -131,13 +116,11 @@ def crf_segment_reduce(emissions: Sequence, targets: Sequence,
 def crf_partition(emissions: Sequence, indices: ReductionIndices,
                   transitions: Tuple[Tensor, Tensor, Tensor], semiring: Type[Semiring]):
     if isinstance(emissions, CattedSequence):
-        t, c, h = broadcast_catted_shapes(emissions, transitions=transitions)
         emissions, token_sizes = emissions
         prev, curr, unsorted_indices, head, last, sizes = crf_segment_catted_indices(
             token_sizes=token_sizes, device=emissions.device,
         )
     elif isinstance(emissions, PackedSequence):
-        t, c, h = broadcast_packed_shapes(emissions, transitions=transitions)
         emissions, batch_sizes, _, unsorted_indices = emissions
         prev, curr, unsorted_indices, head, last, sizes = crf_segment_packed_indices(
             batch_sizes=batch_sizes, unsorted_indices=unsorted_indices, device=emissions.device,
@@ -146,21 +129,15 @@ def crf_partition(emissions: Sequence, indices: ReductionIndices,
         raise NotImplementedError
 
     transitions, head_transitions, last_transitions = transitions
-    emissions = emissions.expand((t, c, -1))
-    transitions = transitions.expand((t, c, -1, -1))
-    head_transitions = head_transitions.expand((h, c, -1))
-    last_transitions = last_transitions.expand((h, c, -1))
-
-    c = torch.arange(c, device=emissions.device)
+    c = torch.arange(transitions.size()[1], device=emissions.device)
 
     transitions = semiring.mul(emissions[:, :, None, :], transitions)
     transitions[head] = semiring.eye_like(transitions)[None, None, :, :]
 
-    head_emissions = emissions[head[:, None], c[None, :], None, :]
     head_transitions = head_transitions[unsorted_indices[:, None], c[None, :], None, :]
     last_transitions = last_transitions[unsorted_indices[:, None], c[None, :], :, None]
 
-    scores = semiring.mul(head_emissions, head_transitions)
+    scores = semiring.mul(emissions[head[:, None], c[None, :], None, :], head_transitions)
     scores = semiring.bmm(scores, semiring.reduce(transitions, indices=indices))
     scores = semiring.bmm(scores, last_transitions)
 
@@ -227,26 +204,31 @@ class CrfDecoder(nn.Module):
         init.zeros_(self.last_transitions)
 
     def forward(self, emissions: Sequence, indices: CrfIndices = None) -> CrfDistribution:
-        if indices is None:
-            if isinstance(emissions, CattedSequence):
-                indices = reduce_catted_indices(
-                    token_sizes=emissions.token_sizes,
-                    device=emissions.data.device,
-                )
-            elif isinstance(emissions, PackedSequence):
+        transitions = (self.transitions, self.head_transitions, self.last_transitions)
+        if isinstance(emissions, CattedSequence):
+            t, c, h = broadcast_catted_shapes(sequence=emissions, transitions=transitions)
+            indices = reduce_catted_indices(
+                token_sizes=emissions.token_sizes,
+                device=emissions.data.device,
+            )
+        elif isinstance(emissions, PackedSequence):
+            t, c, h = broadcast_packed_shapes(sequence=emissions, transitions=transitions)
+            indices = reduce_packed_indices(
+                batch_sizes=emissions.batch_sizes,
+                unsorted_indices=emissions.unsorted_indices,
+                device=emissions.data.device,
+            )
+        else:
+            raise NotImplementedError
 
-                indices = reduce_packed_indices(
-                    batch_sizes=emissions.batch_sizes,
-                    unsorted_indices=emissions.unsorted_indices,
-                    device=emissions.data.device,
-                )
-            else:
-                raise NotImplementedError
+        emissions = emissions._replace(data=emissions.data.expand((t, c, -1)))
+        transitions = self.transitions.expand((t, c, -1, -1))
+        head_transitions = self.head_transitions.expand((h, c, -1))
+        last_transitions = self.last_transitions.expand((h, c, -1))
 
         return CrfDistribution(
-            log_potentials=emissions,
-            indices=indices,
-            transitions=(self.transitions, self.head_transitions, self.last_transitions),
+            log_potentials=emissions, indices=indices,
+            transitions=(transitions, head_transitions, last_transitions),
         )
 
 
@@ -268,11 +250,12 @@ if __name__ == '__main__':
 
     token_sizes = torch.tensor([5, 2, 3])
 
-    e1 = pack_sequence([s[:, None, :] for s in sequence])
+    e1 = cat_sequence([s[:, None, :] for s in sequence])
 
     e2, _ = pad_sequence(sequence, batch_first=False)
-    size, ptr, _ = pad_packed_indices(
-        e1.batch_sizes, False, e1.sorted_indices, e1.unsorted_indices
+    size, ptr = pad_catted_indices(
+        e1.token_sizes, False,
+        # e1.sorted_indices, e1.unsorted_indices
     )
     mask = torch.zeros(size, dtype=torch.bool)
     mask[ptr] = True
