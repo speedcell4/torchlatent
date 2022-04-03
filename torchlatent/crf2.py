@@ -3,7 +3,6 @@ from typing import Tuple
 from typing import Type
 
 import torch
-import torchcrf
 from torch import Tensor
 from torch import nn
 from torch.distributions.utils import lazy_property
@@ -12,8 +11,8 @@ from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
 from torchrua import ReductionIndices, reduce_catted_indices, reduce_packed_indices
 from torchrua import head_catted_indices, last_catted_indices, head_packed_indices, last_packed_indices, \
-    accumulate_sizes, pad_sequence
-from torchrua import pad_catted_indices, cat_sequence, cat_packed_indices, roll_catted_indices, CattedSequence
+    accumulate_sizes
+from torchrua import cat_packed_indices, roll_catted_indices, CattedSequence
 
 from torchlatent.abc import DistributionABC
 from torchlatent.semiring import Semiring, Log, Max
@@ -251,46 +250,8 @@ class CrfDecoder(nn.Module):
             indices=indices,
         )
 
+    def fit(self, emissions: Sequence, targets: Sequence, indices: CrfIndices = None) -> Tensor:
+        dist = self.forward(emissions=emissions, indices=indices)
+        return dist.log_partitions - dist.log_scores(targets=targets)
 
-if __name__ == '__main__':
-    num_tags = 3
 
-    decoder1 = CrfDecoder(num_tags)
-    decoder2 = torchcrf.CRF(num_tags, batch_first=False)
-
-    decoder1.transitions.data = decoder2.transitions[None, None, :, :]
-    decoder1.head_transitions.data = decoder2.start_transitions[None, None, :]
-    decoder1.last_transitions.data = decoder2.end_transitions[None, None, :]
-
-    ss = [
-        torch.randn((5, num_tags), requires_grad=True),
-        torch.randn((2, num_tags), requires_grad=True),
-        torch.randn((3, num_tags), requires_grad=True),
-    ]
-    tt = [
-        torch.randint(0, num_tags, (5,)),
-        torch.randint(0, num_tags, (2,)),
-        torch.randint(0, num_tags, (3,)),
-    ]
-
-    e1 = cat_sequence([s[:, None] for s in ss])
-    t1 = cat_sequence([t[:, None] for t in tt])
-
-    e2, _ = pad_sequence(ss, batch_first=False)
-    t2, _ = pad_sequence(tt, batch_first=False)
-    size, ptr = pad_catted_indices(e1.token_sizes, batch_first=False)
-    mask = torch.zeros(size, dtype=torch.bool)
-    mask[ptr] = True
-
-    dist = decoder1.forward(e1)
-    lhs = dist.log_partitions[:, 0]
-    rhs = decoder2._compute_normalizer(e2, mask=mask)
-    print(f'lhs => {lhs}')
-    print(f'rhs => {rhs}')
-    print(torch.allclose(lhs, rhs))
-
-    lhs = dist.log_scores(t1)[:, 0]
-    rhs = decoder2._compute_score(e2, t2, mask=mask)
-    print(f'lhs => {lhs}')
-    print(f'rhs => {rhs}')
-    print(torch.allclose(lhs, rhs))
