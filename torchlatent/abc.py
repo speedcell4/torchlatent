@@ -1,5 +1,6 @@
 from abc import ABCMeta
 
+import torch
 import torch.autograd
 from torch import Tensor
 from torch.distributions import Distribution
@@ -13,17 +14,17 @@ __all__ = [
 
 
 class DistributionABC(Distribution, metaclass=ABCMeta):
-    scores: Tensor
+    log_potentials: Tensor
 
-    def log_scores(self, value: Sequence) -> Tensor:
+    def log_scores(self, targets: Sequence) -> Tensor:
         raise NotImplementedError
 
     @lazy_property
     def log_partitions(self) -> Tensor:
         raise NotImplementedError
 
-    def log_prob(self, value: Sequence) -> Tensor:
-        return self.log_scores(value=value) - self.log_partitions
+    def log_prob(self, targets: Sequence) -> Tensor:
+        return self.log_scores(targets=targets) - self.log_partitions
 
     @lazy_property
     def max(self) -> Tensor:
@@ -32,14 +33,18 @@ class DistributionABC(Distribution, metaclass=ABCMeta):
     @lazy_property
     def argmax(self) -> Tensor:
         grad, = torch.autograd.grad(
-            self.max, self.scores, torch.ones_like(self.max),
+            self.max, self.log_potentials, torch.ones_like(self.max),
             create_graph=False, only_inputs=True, allow_unused=False,
         )
         return grad
 
     @lazy_property
     def marginals(self) -> Tensor:
-        raise NotImplementedError
+        grad, = torch.autograd.grad(
+            self.log_partitions, self.log_potentials, torch.ones_like(self.log_partitions),
+            create_graph=False, only_inputs=True, allow_unused=False,
+        )
+        return grad
 
     @lazy_property
     def entropy(self) -> Tensor:

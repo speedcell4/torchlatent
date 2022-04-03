@@ -60,7 +60,7 @@ def test_cky_log_partitions(device, token_sizes, num_tags):
     token_sizes = torch.tensor(token_sizes, device=device)
 
     excepted = TreeCRF(log_potentials=scores, lengths=token_sizes)
-    actual = CkyDistribution(scores=scores, indices=cky_indices(token_sizes=token_sizes, device=device))
+    actual = CkyDistribution(log_potentials=scores, indices=cky_indices(token_sizes=token_sizes, device=device))
 
     assert_close(actual=actual.log_partitions, expected=excepted.partition)
     assert_grad_close(actual=actual.log_partitions, expected=excepted.partition, inputs=scores, rtol=1e-5, atol=1e-5)

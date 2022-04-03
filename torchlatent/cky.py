@@ -53,9 +53,9 @@ def cky_partition(data: Tensor, indices: CkyIndices, semiring: Type[Semiring]) -
     token_size, cache_size, (src1, src2), tgt = indices
 
     size = (token_size, cache_size, *data.size()[3:])
-    tensor0 = torch.full(size, fill_value=semiring.zero, requires_grad=False)
-    tensor1 = torch.full(size, fill_value=semiring.zero, requires_grad=False)
-    tensor2 = torch.full(size, fill_value=semiring.zero, requires_grad=False)
+    tensor0 = torch.full(size, fill_targets=semiring.zero, requires_grad=False)
+    tensor1 = torch.full(size, fill_targets=semiring.zero, requires_grad=False)
+    tensor2 = torch.full(size, fill_targets=semiring.zero, requires_grad=False)
 
     tensor0[src1] = data[src2]
     tensor1[0, :] = tensor2[-1, :] = tensor0[0, :]
@@ -70,27 +70,27 @@ def cky_partition(data: Tensor, indices: CkyIndices, semiring: Type[Semiring]) -
 
 
 class CkyDistribution(DistributionABC):
-    def __init__(self, scores: Tensor, indices: CkyIndices) -> None:
+    def __init__(self, log_potentials: Tensor, indices: CkyIndices) -> None:
         super(CkyDistribution, self).__init__(validate_args=False)
 
-        self.scores = scores
+        self.log_potentials = log_potentials
         self.indices = indices
 
     def log_scores(self, sequence: Sequence) -> Tensor:
         indices, batch_ptr, sizes = segment_indices(sequence=sequence)
         data = sequence.data[indices]
         return Log.segment_prod(
-            tensor=self.scores[batch_ptr, data[..., 0], data[..., 1], data[..., 2]],
+            tensor=self.log_potentials[batch_ptr, data[..., 0], data[..., 1], data[..., 2]],
             sizes=sizes,
         )
 
     @lazy_property
     def log_partitions(self) -> Tensor:
-        return cky_partition(data=Log.sum(self.scores, dim=-1), indices=self.indices, semiring=Log)
+        return cky_partition(data=Log.sum(self.log_potentials, dim=-1), indices=self.indices, semiring=Log)
 
     @lazy_property
     def max(self) -> Tensor:
-        return cky_partition(data=Max.sum(self.scores, dim=-1), indices=self.indices, semiring=Max)
+        return cky_partition(data=Max.sum(self.log_potentials, dim=-1), indices=self.indices, semiring=Max)
 
     @lazy_property
     def argmax(self) -> Tensor:
@@ -108,7 +108,7 @@ class CkyDistribution(DistributionABC):
     @lazy_property
     def marginals(self) -> Tensor:
         grad, = torch.autograd.grad(
-            self.log_partitions, self.scores, torch.ones_like(self.log_partitions),
+            self.log_partitions, self.log_potentials, torch.ones_like(self.log_partitions),
             create_graph=True, only_inputs=True, allow_unused=False,
         )
         return grad
@@ -142,13 +142,13 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
             indices = cky_indices(token_sizes=token_sizes, device=features.device)
 
         return CkyDistribution(
-            scores=self.forward_scores(features=features),
+            log_potentials=self.forward_scores(features=features),
             indices=indices,
         )
 
-    def fit(self, sequence: Sequence, value: Sequence, indices: CkyIndices = None) -> Tensor:
+    def fit(self, sequence: Sequence, targets: Sequence, indices: CkyIndices = None) -> Tensor:
         dist = self.forward(sequence=sequence, indices=indices)
-        return dist.log_partitions - dist.log_scores(sequence=value)
+        return dist.log_partitions - dist.log_scores(sequence=targets)
 
     def decode(self, sequence: Sequence, indices: CkyIndices = None) -> Sequence:
         dist = self.forward(sequence=sequence, indices=indices)
