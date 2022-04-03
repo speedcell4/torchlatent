@@ -14,7 +14,7 @@ __all__ = [
 
 
 class DistributionABC(Distribution, metaclass=ABCMeta):
-    log_potentials: Tensor
+    emissions: Tensor
 
     def log_scores(self, targets: Sequence) -> Tensor:
         raise NotImplementedError
@@ -33,7 +33,7 @@ class DistributionABC(Distribution, metaclass=ABCMeta):
     @lazy_property
     def argmax(self) -> Tensor:
         grad, = torch.autograd.grad(
-            self.max, self.log_potentials, torch.ones_like(self.max),
+            self.max, self.emissions, torch.ones_like(self.max),
             create_graph=False, only_inputs=True, allow_unused=False,
         )
         return grad
@@ -41,7 +41,7 @@ class DistributionABC(Distribution, metaclass=ABCMeta):
     @lazy_property
     def marginals(self) -> Tensor:
         grad, = torch.autograd.grad(
-            self.log_partitions, self.log_potentials, torch.ones_like(self.log_partitions),
+            self.log_partitions, self.emissions, torch.ones_like(self.log_partitions),
             create_graph=False, only_inputs=True, allow_unused=False,
         )
         return grad

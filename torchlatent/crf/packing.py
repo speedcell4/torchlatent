@@ -6,7 +6,7 @@ from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
 from torchrua import ReductionIndices
 
-from torchlatent.crf2 import crf_segment_reduce
+from torchlatent.crf2 import crf_reduce
 from torchlatent.semiring import Semiring, Log, Max
 
 __all__ = [
@@ -20,7 +20,7 @@ def compute_packed_sequence_scores(semiring: Type[Semiring]):
     def _compute_packed_sequence_scores(
             emissions: PackedSequence, tags: PackedSequence,
             transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> Tensor:
-        return crf_segment_reduce(
+        return crf_reduce(
             emissions=emissions,
             targets=tags,
             transitions=(transitions, head_transitions, last_transitions),

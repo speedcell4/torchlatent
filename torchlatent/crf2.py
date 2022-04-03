@@ -10,9 +10,10 @@ from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
-from torchrua import reduce_catted_indices, reduce_packed_indices, pad_catted_indices, cat_sequence, cat_packed_indices
-from torchrua import roll_catted_indices, CattedSequence, head_catted_indices, last_catted_indices, head_packed_indices, \
-    last_packed_indices, accumulate_sizes, ReductionIndices, pad_sequence
+from torchrua import ReductionIndices, reduce_catted_indices, reduce_packed_indices
+from torchrua import head_catted_indices, last_catted_indices, head_packed_indices, last_packed_indices, \
+    accumulate_sizes, pad_sequence
+from torchrua import pad_catted_indices, cat_sequence, cat_packed_indices, roll_catted_indices, CattedSequence
 
 from torchlatent.abc import DistributionABC
 from torchlatent.semiring import Semiring, Log, Max
@@ -59,7 +60,7 @@ def broadcast_packed_shapes(sequence: PackedSequence, transitions: Tuple[Tensor,
 
 
 @torch.no_grad()
-def crf_segment_catted_indices(token_sizes: Tensor, device: Device = None):
+def crf_reduce_catted_indices(token_sizes: Tensor, device: Device = None):
     if device is None:
         device = token_sizes.device
 
@@ -74,7 +75,7 @@ def crf_segment_catted_indices(token_sizes: Tensor, device: Device = None):
 
 
 @torch.no_grad()
-def crf_segment_packed_indices(batch_sizes: Tensor, unsorted_indices: Tensor, device: Device):
+def crf_reduce_packed_indices(batch_sizes: Tensor, unsorted_indices: Tensor, device: Device):
     if device is None:
         if unsorted_indices is not None:
             device = unsorted_indices.device
@@ -92,9 +93,9 @@ def crf_segment_packed_indices(batch_sizes: Tensor, unsorted_indices: Tensor, de
 
 
 @torch.no_grad()
-def crf_indices(emissions: Sequence):
+def crf_indices(emissions: Sequence) -> CrfIndices:
     if isinstance(emissions, CattedSequence):
-        head, last, prev, curr, token_sizes, unsorted_indices = crf_segment_catted_indices(
+        head, last, prev, curr, token_sizes, unsorted_indices = crf_reduce_catted_indices(
             token_sizes=emissions.token_sizes,
             device=emissions.data.device,
         )
@@ -103,7 +104,7 @@ def crf_indices(emissions: Sequence):
             device=emissions.data.device,
         )
     elif isinstance(emissions, PackedSequence):
-        head, last, prev, curr, token_sizes, unsorted_indices = crf_segment_packed_indices(
+        head, last, prev, curr, token_sizes, unsorted_indices = crf_reduce_packed_indices(
             batch_sizes=emissions.batch_sizes,
             unsorted_indices=emissions.unsorted_indices,
             device=emissions.data.device,
@@ -114,7 +115,7 @@ def crf_indices(emissions: Sequence):
             device=emissions.data.device,
         )
     else:
-        raise NotImplementedError
+        raise KeyError(f'type {type(emissions)} is not supported')
 
     return CrfIndices(
         head=head, last=last,
@@ -125,12 +126,10 @@ def crf_indices(emissions: Sequence):
     )
 
 
-def crf_segment_reduce(emissions: Sequence, targets: Sequence, indices: CrfIndices,
-                       transitions: Tuple[Tensor, Tensor, Tensor], semiring: Type[Semiring]) -> Tensor:
+def crf_reduce(emissions: Tensor, targets: Tensor, transitions: Tuple[Tensor, Tensor, Tensor],
+               indices: CrfIndices, semiring: Type[Semiring]) -> Tensor:
     head, last, prev, curr, sizes, unsorted_indices, _ = indices
 
-    emissions = emissions.data
-    targets = targets.data
     transitions, head_transitions, last_transitions = transitions
     c = torch.arange(transitions.size()[1], device=emissions.device)
 
@@ -144,11 +143,10 @@ def crf_segment_reduce(emissions: Sequence, targets: Sequence, indices: CrfIndic
     return semiring.mul(emissions, semiring.mul(head_transitions, last_transitions))
 
 
-def crf_partition(emissions: Sequence, indices: CrfIndices,
-                  transitions: Tuple[Tensor, Tensor, Tensor], semiring: Type[Semiring]):
+def crf_partition(emissions: Tensor, transitions: Tuple[Tensor, Tensor, Tensor],
+                  indices: CrfIndices, semiring: Type[Semiring]):
     head, _, _, _, _, unsorted_indices, indices = indices
 
-    emissions = emissions.data
     transitions, head_transitions, last_transitions = transitions
     c = torch.arange(transitions.size()[1], device=emissions.device)
 
@@ -166,38 +164,37 @@ def crf_partition(emissions: Sequence, indices: CrfIndices,
 
 
 class CrfDistribution(DistributionABC):
-    def __init__(self, log_potentials: Sequence, indices: CrfIndices,
-                 transitions: Tuple[Tensor, Tensor, Tensor]) -> None:
+    def __init__(self, emissions: Tensor, transitions: Tuple[Tensor, Tensor, Tensor], indices: CrfIndices) -> None:
         super(CrfDistribution, self).__init__(validate_args=False)
 
-        self.log_potentials = log_potentials
+        self.emissions = emissions
         self.indices = indices
         self.transitions = transitions
 
     def log_scores(self, targets: Sequence) -> Tensor:
-        return crf_segment_reduce(
-            emissions=self.log_potentials,
-            targets=targets,
+        return crf_reduce(
+            emissions=self.emissions,
+            targets=targets.data,
             transitions=self.transitions,
-            semiring=Log,
             indices=self.indices,
+            semiring=Log,
         )
 
     @lazy_property
     def log_partitions(self) -> Tensor:
         return crf_partition(
-            emissions=self.log_potentials,
-            indices=self.indices,
+            emissions=self.emissions,
             transitions=self.transitions,
+            indices=self.indices,
             semiring=Log,
         )
 
     @lazy_property
     def max(self) -> Tensor:
         return crf_partition(
-            emissions=self.log_potentials,
-            indices=self.indices,
+            emissions=self.emissions,
             transitions=self.transitions,
+            indices=self.indices,
             semiring=Max,
         )
 
@@ -225,8 +222,9 @@ class CrfDecoder(nn.Module):
         init.zeros_(self.head_transitions)
         init.zeros_(self.last_transitions)
 
-    def forward(self, emissions: Sequence, indices: CrfIndices = None) -> CrfDistribution:
+    def forward_parameters(self, emissions: Sequence):
         transitions = (self.transitions, self.head_transitions, self.last_transitions)
+
         if isinstance(emissions, CattedSequence):
             t, c, h = broadcast_catted_shapes(sequence=emissions, transitions=transitions)
         elif isinstance(emissions, PackedSequence):
@@ -234,17 +232,23 @@ class CrfDecoder(nn.Module):
         else:
             raise NotImplementedError
 
-        emissions = emissions._replace(data=emissions.data.expand((t, c, -1)))
+        emissions = emissions.data.expand((t, c, -1))
         transitions = self.transitions.expand((t, c, -1, -1))
         head_transitions = self.head_transitions.expand((h, c, -1))
         last_transitions = self.last_transitions.expand((h, c, -1))
 
+        return emissions, (transitions, head_transitions, last_transitions)
+
+    def forward(self, emissions: Sequence, indices: CrfIndices = None) -> CrfDistribution:
         if indices is None:
             indices = crf_indices(emissions=emissions)
 
+        emissions, transitions = self.forward_parameters(emissions=emissions)
+
         return CrfDistribution(
-            log_potentials=emissions, indices=indices,
-            transitions=(transitions, head_transitions, last_transitions),
+            emissions=emissions,
+            transitions=transitions,
+            indices=indices,
         )
 
 

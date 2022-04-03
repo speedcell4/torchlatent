@@ -6,7 +6,7 @@ from torch.distributions.utils import lazy_property
 from torchrua import CattedSequence
 from torchrua import ReductionIndices, head_catted_indices
 
-from torchlatent.crf2 import crf_segment_reduce, crf_partition
+from torchlatent.crf2 import crf_reduce, crf_partition
 from torchlatent.semiring import Semiring, Log, Max
 
 __all__ = [
@@ -20,7 +20,7 @@ def compute_catted_sequence_scores(semiring: Type[Semiring]):
     def _compute_catted_sequence_scores(
             emissions: CattedSequence, tags: CattedSequence,
             transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> Tensor:
-        return crf_segment_reduce(
+        return crf_reduce(
             emissions=emissions, targets=tags,
             transitions=(transitions, head_transitions, last_transitions),
             semiring=semiring,
