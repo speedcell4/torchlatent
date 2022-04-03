@@ -18,6 +18,10 @@ def test_crf_catted_fit(device, token_sizes, num_tags):
     actual_decoder = CrfDecoder(num_tags)
     excepted_decoder = torchcrf.CRF(num_tags, batch_first=False)
 
+    excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
+    excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
+    excepted_decoder.end_transitions.data = torch.randn_like(excepted_decoder.end_transitions)
+
     actual_decoder.transitions.data = excepted_decoder.transitions[None, None, :, :]
     actual_decoder.head_transitions.data = excepted_decoder.start_transitions[None, None, :]
     actual_decoder.last_transitions.data = excepted_decoder.end_transitions[None, None, :]
@@ -60,6 +64,10 @@ def test_crf_catted_decode(device, token_sizes, num_tags):
     actual_decoder = CrfDecoder(num_tags)
     excepted_decoder = torchcrf.CRF(num_tags, batch_first=False)
 
+    excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
+    excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
+    excepted_decoder.end_transitions.data = torch.randn_like(excepted_decoder.end_transitions)
+
     actual_decoder.transitions.data = excepted_decoder.transitions[None, None, :, :]
     actual_decoder.head_transitions.data = excepted_decoder.start_transitions[None, None, :]
     actual_decoder.last_transitions.data = excepted_decoder.end_transitions[None, None, :]
@@ -94,6 +102,10 @@ def test_crf_catted_decode(device, token_sizes, num_tags):
 def test_crf_packed_fit(device, token_sizes, num_tags):
     actual_decoder = CrfDecoder(num_tags)
     excepted_decoder = torchcrf.CRF(num_tags, batch_first=False)
+
+    excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
+    excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
+    excepted_decoder.end_transitions.data = torch.randn_like(excepted_decoder.end_transitions)
 
     actual_decoder.transitions.data = excepted_decoder.transitions[None, None, :, :]
     actual_decoder.head_transitions.data = excepted_decoder.start_transitions[None, None, :]
@@ -142,6 +154,10 @@ def test_crf_packed_decode(device, token_sizes, num_tags):
     actual_decoder = CrfDecoder(num_tags)
     excepted_decoder = torchcrf.CRF(num_tags, batch_first=False)
 
+    excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
+    excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
+    excepted_decoder.end_transitions.data = torch.randn_like(excepted_decoder.end_transitions)
+
     actual_decoder.transitions.data = excepted_decoder.transitions[None, None, :, :]
     actual_decoder.head_transitions.data = excepted_decoder.start_transitions[None, None, :]
     actual_decoder.last_transitions.data = excepted_decoder.end_transitions[None, None, :]
@@ -186,6 +202,10 @@ def test_conjugated_catted_fit(device, token_sizes, num_conjugates, num_tags):
     decoders = [CrfDecoder(num_tags=num_tags, num_conjugates=1) for _ in range(num_conjugates)]
 
     for index in range(num_conjugates):
+        decoders[index].transitions.data = torch.randn_like(decoders[index].transitions)
+        decoders[index].head_transitions.data = torch.randn_like(decoders[index].head_transitions)
+        decoders[index].last_transitions.data = torch.randn_like(decoders[index].last_transitions)
+
         decoder.transitions.data[:, index] = decoders[index].transitions
         decoder.head_transitions.data[:, index] = decoders[index].head_transitions
         decoder.last_transitions.data[:, index] = decoders[index].last_transitions
@@ -228,6 +248,10 @@ def test_conjugated_packed_fit(device, token_sizes, num_conjugates, num_tags):
     decoders = [CrfDecoder(num_tags=num_tags, num_conjugates=1) for _ in range(num_conjugates)]
 
     for index in range(num_conjugates):
+        decoders[index].transitions.data = torch.randn_like(decoders[index].transitions)
+        decoders[index].head_transitions.data = torch.randn_like(decoders[index].head_transitions)
+        decoders[index].last_transitions.data = torch.randn_like(decoders[index].last_transitions)
+
         decoder.transitions.data[:, index] = decoders[index].transitions
         decoder.head_transitions.data[:, index] = decoders[index].head_transitions
         decoder.last_transitions.data[:, index] = decoders[index].last_transitions
