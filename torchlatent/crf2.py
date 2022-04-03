@@ -5,7 +5,7 @@ from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
 from torchrua import roll_catted_indices, CattedSequence, head_catted_indices, last_catted_indices, head_packed_indices, \
-    last_packed_indices, accumulate_sizes
+    last_packed_indices, accumulate_sizes, ReductionIndices
 
 from torchlatent.semiring import segment_catted_indices, segment_packed_indices, Semiring
 
@@ -116,3 +116,42 @@ def crf_segment_reduce(emissions: Sequence, targets: Sequence,
 
     emissions = semiring.segment_prod(semiring.mul(emissions, transitions), sizes=sizes)
     return semiring.mul(emissions, semiring.mul(head_transitions, last_transitions))
+
+
+def crf_partition(emissions: Sequence, indices: ReductionIndices,
+                  transitions: Tuple[Tensor, Tensor, Tensor], semiring: Type[Semiring]):
+    if isinstance(emissions, CattedSequence):
+        t, c, h = broadcast_catted_shapes(emissions, transitions=transitions)
+        emissions, token_sizes = emissions
+        prev, curr, unsorted_indices, head, last, sizes = crf_segment_catted_indices(
+            token_sizes=token_sizes, device=emissions.device,
+        )
+    elif isinstance(emissions, PackedSequence):
+        t, c, h = broadcast_packed_shapes(emissions, transitions=transitions)
+        emissions, batch_sizes, _, unsorted_indices = emissions
+        prev, curr, unsorted_indices, head, last, sizes = crf_segment_packed_indices(
+            batch_sizes=batch_sizes, unsorted_indices=unsorted_indices, device=emissions.device,
+        )
+    else:
+        raise NotImplementedError
+
+    transitions, head_transitions, last_transitions = transitions
+    emissions = emissions.expand((t, c, -1))
+    transitions = transitions.expand((t, c, -1, -1))
+    head_transitions = head_transitions.expand((h, c, -1))
+    last_transitions = last_transitions.expand((h, c, -1))
+
+    c = torch.arange(c, device=emissions.device)
+
+    transitions = semiring.mul(emissions[:, :, None, :], transitions)
+    transitions[head] = semiring.eye_like(transitions)[None, None, :, :]
+
+    head_emissions = emissions[head[:, None], c[None, :], None, :]
+    head_transitions = head_transitions[unsorted_indices[:, None], c[None, :], None, :]
+    last_transitions = last_transitions[unsorted_indices[:, None], c[None, :], :, None]
+
+    scores = semiring.mul(head_emissions, head_transitions)
+    scores = semiring.bmm(scores, semiring.reduce(transitions, indices=indices))
+    scores = semiring.bmm(scores, last_transitions)
+
+    return scores[..., 0, 0]

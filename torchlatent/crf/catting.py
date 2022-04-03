@@ -6,7 +6,7 @@ from torch.distributions.utils import lazy_property
 from torchrua import CattedSequence
 from torchrua import ReductionIndices, head_catted_indices
 
-from torchlatent.crf2 import crf_segment_reduce
+from torchlatent.crf2 import crf_segment_reduce, crf_partition
 from torchlatent.semiring import Semiring, Log, Max
 
 __all__ = [
@@ -33,24 +33,11 @@ def compute_catted_sequence_partitions(semiring: Type[Semiring]):
     def _compute_catted_sequence_partitions(
             emissions: CattedSequence, indices: ReductionIndices,
             transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor, eye: Tensor) -> Tensor:
-        h = emissions.token_sizes.size()[0]
-        t = torch.arange(transitions.size()[0], device=transitions.device)  # [t]
-        c = torch.arange(transitions.size()[1], device=transitions.device)  # [c]
-        head_indices = head_catted_indices(emissions.token_sizes)
-
-        emission_scores = semiring.mul(transitions, emissions.data[..., None, :])  # [t, c, n, n]
-        emission_scores[head_indices] = eye[None, None, :, :]
-        emission_scores = semiring.reduce(tensor=emission_scores, indices=indices)
-
-        emission_head_scores = emissions.data[head_indices, :, None, :]
-        transition_head_scores = head_transitions[t[:h, None], c[None, :], None, :]
-        transition_last_scores = last_transitions[t[:h, None], c[None, :], :, None]
-
-        scores = semiring.mul(transition_head_scores, emission_head_scores)
-        scores = semiring.bmm(scores, emission_scores)
-        scores = semiring.bmm(scores, transition_last_scores)[..., 0, 0]
-
-        return scores
+        return crf_partition(
+            emissions=emissions, indices=indices,
+            transitions=(transitions, head_transitions, last_transitions),
+            semiring=semiring,
+        )
 
     return _compute_catted_sequence_partitions
 
