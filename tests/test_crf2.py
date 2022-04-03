@@ -2,10 +2,11 @@ import torch
 import torchcrf
 from hypothesis import given
 from torch.testing import assert_close
-from torchrua import cat_sequence, pad_sequence, pad_catted_indices, pad_packed_indices, pack_sequence
+from torchrua import cat_sequence, pad_sequence, pad_catted_indices, pad_packed_indices, pack_sequence, \
+    pad_catted_sequence
 
 from tests.strategies import devices, sizes, TOKEN_SIZE, TINY_BATCH_SIZE
-from tests.utils import assert_grad_close
+from tests.utils import assert_grad_close, assert_equal
 from torchlatent.crf2 import CrfDecoder
 
 
@@ -49,6 +50,41 @@ def test_crf_catted_fit(device, token_sizes, num_tags):
 
     assert_close(actual=actual, expected=excepted)
     assert_grad_close(actual=actual, expected=excepted, inputs=emissions)
+
+
+@given(
+    device=devices(),
+    token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
+    num_tags=sizes(TOKEN_SIZE),
+)
+def test_crf_catted_decode(device, token_sizes, num_tags):
+    actual_decoder = CrfDecoder(num_tags)
+    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False)
+
+    actual_decoder.transitions.data = excepted_decoder.transitions[None, None, :, :]
+    actual_decoder.head_transitions.data = excepted_decoder.start_transitions[None, None, :]
+    actual_decoder.last_transitions.data = excepted_decoder.end_transitions[None, None, :]
+
+    emissions = [
+        torch.randn((token_size, num_tags), requires_grad=True, device=device)
+        for token_size in token_sizes
+    ]
+
+    catted_emissions = cat_sequence([x[:, None] for x in emissions])
+
+    padded_emissions, _ = pad_sequence(emissions, batch_first=False)
+
+    size, ptr = pad_catted_indices(catted_emissions.token_sizes, batch_first=False)
+    mask = torch.zeros(size, dtype=torch.bool, device=device)
+    mask[ptr] = True
+
+    actual, actual_token_sizes = actual_decoder.decode(emissions=catted_emissions)
+
+    excepted = excepted_decoder.decode(emissions=padded_emissions, mask=mask.byte())
+    excepted, excepted_token_sizes = cat_sequence([torch.tensor(x, device=device) for x in excepted])
+
+    assert_equal(actual=actual[:, 0], expected=excepted)
+    assert_equal(actual=actual_token_sizes, expected=excepted_token_sizes)
 
 
 @given(

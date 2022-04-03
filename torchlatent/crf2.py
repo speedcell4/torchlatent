@@ -1,4 +1,4 @@
-from typing import Sequence, NamedTuple
+from typing import NamedTuple, Union
 from typing import Tuple
 from typing import Type
 
@@ -10,12 +10,14 @@ from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
 from torchrua import ReductionIndices, reduce_catted_indices, reduce_packed_indices
+from torchrua import cat_packed_indices, roll_catted_indices, CattedSequence
 from torchrua import head_catted_indices, last_catted_indices, head_packed_indices, last_packed_indices, \
     accumulate_sizes
-from torchrua import cat_packed_indices, roll_catted_indices, CattedSequence
 
 from torchlatent.abc import DistributionABC
 from torchlatent.semiring import Semiring, Log, Max
+
+Sequence = Union[CattedSequence, PackedSequence]
 
 
 class CrfIndices(NamedTuple):
@@ -198,6 +200,10 @@ class CrfDistribution(DistributionABC):
         )
 
     @lazy_property
+    def argmax(self) -> Tensor:
+        return super(CrfDistribution, self).argmax.argmax(dim=-1)
+
+    @lazy_property
     def entropy(self) -> Tensor:
         raise NotImplementedError
 
@@ -254,4 +260,6 @@ class CrfDecoder(nn.Module):
         dist = self.forward(emissions=emissions, indices=indices)
         return dist.log_partitions - dist.log_scores(targets=targets)
 
-
+    def decode(self, emissions: Sequence, indices: CrfIndices = None) -> Sequence:
+        dist = self.forward(emissions=emissions, indices=indices)
+        return emissions._replace(data=dist.argmax)
