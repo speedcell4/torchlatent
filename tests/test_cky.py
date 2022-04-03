@@ -16,7 +16,7 @@ from torchlatent.cky import CkyDistribution, cky_indices, CkyDecoder
     num_tags=sizes(TOKEN_SIZE),
     bias=st.booleans(),
 )
-def test_cky_log_scores(device, token_sizes, embedding_dim, num_tags, bias):
+def test_cky_packed_max(device, token_sizes, embedding_dim, num_tags, bias):
     sequence = pack_sequence([
         torch.randn((token_size, embedding_dim), requires_grad=True, device=device)
         for token_size in token_sizes
