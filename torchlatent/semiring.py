@@ -1,14 +1,83 @@
 import torch
 from torch import Tensor
+from torch.nn.utils.rnn import PackedSequence
+from torch.types import Device
+from torchrua import cat_packed_indices, cat_padded_indices, CattedSequence
 from torchrua.reduction import reduce_sequence, ReductionIndices
-from torchrua.scatter import scatter_add, scatter_max, scatter_mul, scatter_logsumexp
+from torchrua.scatter import scatter_add, scatter_logsumexp
 
 from torchlatent.functional import logsumexp, logaddexp
+from torchlatent.types import Sequence
 
 __all__ = [
     'Semiring',
     'Std', 'Log', 'Max',
 ]
+
+
+@torch.no_grad()
+def segment_indices(sequence: Sequence, batch_first: bool = True, device: Device = None):
+    if isinstance(sequence, CattedSequence):
+        data, token_sizes = sequence
+        return segment_catted_indices(token_sizes=token_sizes, device=data.device)
+
+    if isinstance(sequence, PackedSequence):
+        data, batch_sizes, _, unsorted_indices = sequence
+        return segment_packed_indices(batch_sizes=batch_sizes, unsorted_indices=unsorted_indices, device=data.device)
+
+    if isinstance(sequence, tuple) and torch.is_tensor(sequence[0]) and torch.is_tensor(sequence[1]):
+        data, token_sizes = sequence
+        return segment_padded_indices(token_sizes=token_sizes, batch_first=batch_first, device=device)
+
+    raise KeyError(f'type {type(sequence)} is not supported')
+
+
+@torch.no_grad()
+def segment_catted_indices(token_sizes: Tensor, device: Device = None):
+    if device is None:
+        device = token_sizes.device
+
+    token_sizes = token_sizes.to(device=device)
+
+    batch_ptr = torch.repeat_interleave(repeats=token_sizes)
+    return torch.arange(batch_ptr.size()[0], device=device), batch_ptr, token_sizes
+
+
+@torch.no_grad()
+def segment_packed_indices(batch_sizes: Tensor, unsorted_indices: Tensor, device: Device = None):
+    if device is None:
+        if unsorted_indices is not None:
+            device = unsorted_indices.device
+        else:
+            device = batch_sizes.device
+
+    batch_sizes = batch_sizes.to(device=device)
+    unsorted_indices = unsorted_indices.to(device=device)
+
+    indices, token_sizes = cat_packed_indices(
+        batch_sizes=batch_sizes,
+        unsorted_indices=unsorted_indices,
+        device=device,
+    )
+    batch_ptr = torch.repeat_interleave(repeats=token_sizes)
+    return indices, batch_ptr, token_sizes
+
+
+@torch.no_grad()
+def segment_padded_indices(token_sizes: Tensor, batch_first: bool, device: Device = None):
+    if device is None:
+        device = token_sizes.device
+
+    token_sizes = token_sizes.to(device=device)
+
+    if batch_first:
+        (batch_ptr, token_ptr), _ = cat_padded_indices(
+            token_sizes=token_sizes, batch_first=batch_first, device=device)
+        return (batch_ptr, token_ptr), batch_ptr, token_sizes
+    else:
+        (token_ptr, batch_ptr), _ = cat_padded_indices(
+            token_sizes=token_sizes, batch_first=batch_first, device=device)
+        return (token_ptr, batch_ptr), batch_ptr, token_sizes
 
 
 class Semiring(object):
@@ -41,19 +110,11 @@ class Semiring(object):
         raise NotImplementedError
 
     @classmethod
-    def scatter_add(cls, tensor: Tensor, index: Tensor) -> Tensor:
+    def segment_sum(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         raise NotImplementedError
 
     @classmethod
-    def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
-        raise NotImplementedError
-
-    @classmethod
-    def segment_add(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
-        raise NotImplementedError
-
-    @classmethod
-    def segment_mul(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+    def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         raise NotImplementedError
 
     @classmethod
@@ -86,19 +147,11 @@ class Std(Semiring):
         return torch.prod(tensor, dim=dim, keepdim=keepdim)
 
     @classmethod
-    def scatter_add(cls, tensor: Tensor, index: Tensor) -> Tensor:
-        return scatter_add(tensor=tensor, index=index)
-
-    @classmethod
-    def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
-        return scatter_mul(tensor=tensor, index=index)
-
-    @classmethod
-    def segment_add(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+    def segment_sum(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
 
     @classmethod
-    def segment_mul(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+    def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         raise NotImplementedError
 
 
@@ -131,13 +184,13 @@ class Log(Semiring):
         return scatter_add(tensor=tensor, index=index)
 
     @classmethod
-    def segment_add(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+    def segment_sum(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         m = torch.segment_reduce(tensor, reduce='max', lengths=sizes, unsafe=True).detach()
         z = (tensor - torch.repeat_interleave(m, repeats=sizes)).exp()
         return torch.segment_reduce(z, reduce='sum', lengths=sizes, unsafe=True).log() + m
 
     @classmethod
-    def segment_mul(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+    def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
 
 
@@ -162,17 +215,9 @@ class Max(Semiring):
         return torch.sum(tensor, dim=dim, keepdim=keepdim)
 
     @classmethod
-    def scatter_add(cls, tensor: Tensor, index: Tensor) -> Tensor:
-        return scatter_max(tensor=tensor, index=index)
-
-    @classmethod
-    def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
-        return scatter_add(tensor=tensor, index=index)
-
-    @classmethod
-    def segment_add(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+    def segment_sum(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         return torch.segment_reduce(tensor, reduce='max', lengths=sizes, unsafe=True)
 
     @classmethod
-    def segment_mul(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+    def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
