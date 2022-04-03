@@ -10,6 +10,8 @@ TOKEN_SIZE = 50
 NUM_TAGS = 8
 NUM_CONJUGATES = 5
 
+EMBEDDING_DIM = 25
+
 
 @st.composite
 def devices(draw):
