@@ -204,7 +204,11 @@ class CrfDistribution(DistributionABC):
 
     @lazy_property
     def entropy(self) -> Tensor:
-        raise NotImplementedError
+        tensor = (self.marginals * self.marginals.log()).sum(dim=-1)
+        return -Log.segment_prod(
+            tensor=tensor[self.indices.curr],
+            sizes=self.indices.token_sizes,
+        )
 
 
 class CrfDecoderABC(nn.Module):
@@ -253,7 +257,7 @@ class CrfDecoder(CrfDecoderABC):
         elif isinstance(emissions, PackedSequence):
             t, c, h = broadcast_packed_shapes(sequence=emissions, transitions=transitions)
         else:
-            raise NotImplementedError
+            raise KeyError(f'type {type(emissions)} is not supported')
 
         emissions = emissions.data.expand((t, c, -1))
         transitions = self.transitions.expand((t, c, -1, -1))
@@ -268,11 +272,7 @@ class CrfDecoder(CrfDecoderABC):
 
         emissions, transitions = self.forward_parameters(emissions=emissions)
 
-        return CrfDistribution(
-            emissions=emissions,
-            transitions=transitions,
-            indices=indices,
-        )
+        return CrfDistribution(emissions=emissions, transitions=transitions, indices=indices)
 
     def fit(self, emissions: Sequence, targets: Sequence, indices: CrfIndices = None) -> Tensor:
         dist = self.forward(emissions=emissions, indices=indices)
