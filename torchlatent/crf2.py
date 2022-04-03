@@ -7,12 +7,11 @@ from torch import Tensor
 from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn import init
-from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
-from torchrua import ReductionIndices, reduce_catted_indices, reduce_packed_indices
-from torchrua import cat_packed_indices, roll_catted_indices, CattedSequence
-from torchrua import head_catted_indices, last_catted_indices, head_packed_indices, last_packed_indices, \
-    accumulate_sizes
+from torchrua import ReductionIndices, accumulate_sizes
+from torchrua import head_catted_indices, last_catted_indices, reduce_catted_indices
+from torchrua import head_packed_indices, last_packed_indices, reduce_packed_indices
+from torchrua import roll_catted_indices, cat_packed_indices, CattedSequence, PackedSequence
 
 from torchlatent.abc import DistributionABC
 from torchlatent.semiring import Semiring, Log, Max
@@ -129,18 +128,18 @@ def crf_indices(emissions: Sequence) -> CrfIndices:
 
 def crf_reduce(emissions: Tensor, targets: Tensor, transitions: Tuple[Tensor, Tensor, Tensor],
                indices: CrfIndices, semiring: Type[Semiring]) -> Tensor:
-    head, last, prev, curr, sizes, unsorted_indices, _ = indices
+    head, last, prev, curr, token_sizes, unsorted_indices, _ = indices
 
     transitions, head_transitions, last_transitions = transitions
     c = torch.arange(transitions.size()[1], device=emissions.device)
 
     emissions = emissions[curr[:, None], c[None, :], targets[curr]]
     transitions = transitions[curr[:, None], c[None, :], targets[prev], targets[curr]]
-    transitions[accumulate_sizes(sizes=sizes)] = semiring.one
+    transitions[accumulate_sizes(sizes=token_sizes)] = semiring.one
     head_transitions = head_transitions[unsorted_indices[:, None], c[None, :], targets[head]]
     last_transitions = last_transitions[unsorted_indices[:, None], c[None, :], targets[last]]
 
-    emissions = semiring.segment_prod(semiring.mul(emissions, transitions), sizes=sizes)
+    emissions = semiring.segment_prod(semiring.mul(emissions, transitions), sizes=token_sizes)
     return semiring.mul(emissions, semiring.mul(head_transitions, last_transitions))
 
 
@@ -208,7 +207,21 @@ class CrfDistribution(DistributionABC):
         raise NotImplementedError
 
 
-class CrfDecoder(nn.Module):
+class CrfDecoderABC(nn.Module):
+    def reset_parameters(self) -> None:
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({self.extra_repr()})'
+
+    def extra_repr(self) -> str:
+        return ''
+
+    def forward_parameters(self, emissions: Sequence):
+        raise NotImplementedError
+
+
+class CrfDecoder(CrfDecoderABC):
     def __init__(self, num_tags: int, num_conjugates: int = 1) -> None:
         super(CrfDecoder, self).__init__()
 
@@ -221,11 +234,16 @@ class CrfDecoder(nn.Module):
 
         self.reset_parameters()
 
-    @torch.no_grad()
     def reset_parameters(self) -> None:
         init.zeros_(self.transitions)
         init.zeros_(self.head_transitions)
         init.zeros_(self.last_transitions)
+
+    def extra_repr(self) -> str:
+        return ', '.join([
+            f'num_tags={self.num_tags}',
+            f'num_conjugates={self.num_conjugates}',
+        ])
 
     def forward_parameters(self, emissions: Sequence):
         transitions = (self.transitions, self.head_transitions, self.last_transitions)
