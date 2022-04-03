@@ -4,9 +4,9 @@ import torch
 from torch import Tensor, autograd
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
-from torchrua import head_packed_indices, ReductionIndices
-from torchrua import roll_packed_sequence, head_packed_sequence, last_packed_sequence, major_sizes_to_ptr
+from torchrua import ReductionIndices
 
+from torchlatent.crf2 import crf_segment_reduce
 from torchlatent.semiring import Semiring, Log, Max
 
 __all__ = [
@@ -20,35 +20,12 @@ def compute_packed_sequence_scores(semiring: Type[Semiring]):
     def _compute_packed_sequence_scores(
             emissions: PackedSequence, tags: PackedSequence,
             transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> Tensor:
-        device = transitions.device
-
-        emission_scores = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t, c]
-
-        h = emissions.batch_sizes[0].item()
-        t = torch.arange(transitions.size()[0], device=device)  # [t]
-        c = torch.arange(transitions.size()[1], device=device)  # [c]
-
-        x, y = roll_packed_sequence(tags, shifts=1).data, tags.data  # [t, c]
-        head = head_packed_sequence(tags, unsort=False)  # [h, c]
-        last = last_packed_sequence(tags, unsort=False)  # [h, c]
-
-        transition_scores = transitions[t[:, None], c[None, :], x, y]  # [t, c]
-        transition_head_scores = head_transitions[t[:h, None], c[None, :], head]  # [h, c]
-        transition_last_scores = last_transitions[t[:h, None], c[None, :], last]  # [h, c]
-
-        indices = head_packed_indices(tags.batch_sizes)
-        transition_scores[indices] = transition_head_scores  # [h, c]
-
-        batch_ptr, _ = major_sizes_to_ptr(sizes=emissions.batch_sizes)
-        scores = semiring.mul(emission_scores, transition_scores)
-        scores = semiring.scatter_mul(scores, index=batch_ptr)
-
-        scores = semiring.mul(scores, transition_last_scores)
-
-        if emissions.unsorted_indices is not None:
-            scores = scores[emissions.unsorted_indices]
-
-        return scores
+        return crf_segment_reduce(
+            emissions=emissions,
+            targets=tags,
+            transitions=(transitions, head_transitions, last_transitions),
+            semiring=semiring,
+        )
 
     return _compute_packed_sequence_scores
 
