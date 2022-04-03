@@ -48,6 +48,7 @@ def crf_segment_catted_indices(token_sizes: Tensor, device: Device = None):
     token_sizes = token_sizes.to(device=device)
 
     curr, _, token_sizes = segment_catted_indices(token_sizes=token_sizes, device=device)
+
     prev = roll_catted_indices(token_sizes=token_sizes, shifts=1, device=device)
     head = head_catted_indices(token_sizes=token_sizes, device=device)
     last = last_catted_indices(token_sizes=token_sizes, device=device)
@@ -98,14 +99,14 @@ def crf_segment_reduce(emissions: Sequence, targets: Sequence,
     else:
         raise NotImplementedError
 
-    c = torch.arange(c, device=emissions.device)
-
     transitions, head_transitions, last_transitions = transitions
     emissions = emissions.expand((t, c, -1))
     targets = targets.expand((t, c))
     transitions = transitions.expand((t, c, -1, -1))
     head_transitions = head_transitions.expand((h, c, -1))
     last_transitions = last_transitions.expand((h, c, -1))
+
+    c = torch.arange(c, device=emissions.device)
 
     emissions = emissions[curr[:, None], c[None, :], targets[curr]]
     transitions = transitions[curr[:, None], c[None, :], targets[prev], targets[curr]]

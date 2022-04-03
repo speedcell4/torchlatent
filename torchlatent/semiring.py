@@ -40,7 +40,7 @@ def segment_catted_indices(token_sizes: Tensor, device: Device = None):
     token_sizes = token_sizes.to(device=device)
 
     batch_ptr = torch.repeat_interleave(repeats=token_sizes)
-    return ..., batch_ptr, token_sizes
+    return torch.arange(batch_ptr.size()[0], device=device), batch_ptr, token_sizes
 
 
 @torch.no_grad()

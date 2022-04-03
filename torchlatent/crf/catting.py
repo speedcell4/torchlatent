@@ -5,8 +5,8 @@ from torch import Tensor, autograd
 from torch.distributions.utils import lazy_property
 from torchrua import CattedSequence
 from torchrua import ReductionIndices, head_catted_indices
-from torchrua import roll_catted_sequence, head_catted_sequence, last_catted_sequence
 
+from torchlatent.crf2 import crf_segment_reduce
 from torchlatent.semiring import Semiring, Log, Max
 
 __all__ = [
@@ -20,31 +20,11 @@ def compute_catted_sequence_scores(semiring: Type[Semiring]):
     def _compute_catted_sequence_scores(
             emissions: CattedSequence, tags: CattedSequence,
             transitions: Tensor, head_transitions: Tensor, last_transitions: Tensor) -> Tensor:
-        device = transitions.device
-
-        emission_scores = emissions.data.gather(dim=-1, index=tags.data[..., None])[..., 0]  # [t, c]
-
-        h = emissions.token_sizes.size()[0]
-        t = torch.arange(transitions.size()[0], device=device)  # [t]
-        c = torch.arange(transitions.size()[1], device=device)  # [c]
-
-        x, y = roll_catted_sequence(tags, shifts=1).data, tags.data  # [t, c]
-        head = head_catted_sequence(tags)  # [h, c]
-        last = last_catted_sequence(tags)  # [h, c]
-
-        transition_scores = transitions[t[:, None], c[None, :], x, y]  # [t, c]
-        transition_head_scores = head_transitions[t[:h, None], c[None, :], head]  # [h, c]
-        transition_last_scores = last_transitions[t[:h, None], c[None, :], last]  # [h, c]
-
-        head_indices = head_catted_indices(emissions.token_sizes)
-        transition_scores[head_indices] = transition_head_scores  # [h, c]
-
-        scores = semiring.mul(emission_scores, transition_scores)
-        scores = semiring.segment_prod(scores, sizes=emissions.token_sizes)
-
-        scores = semiring.mul(scores, transition_last_scores)
-
-        return scores
+        return crf_segment_reduce(
+            emissions=emissions, targets=tags,
+            transitions=(transitions, head_transitions, last_transitions),
+            semiring=semiring,
+        )
 
     return _compute_catted_sequence_scores
 
