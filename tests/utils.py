@@ -21,8 +21,8 @@ def assert_grad_close(
         actual: Tensor, expected: Tensor,
         inputs: Union[Tensor, List[Tensor], Tuple[Tensor, ...]],
         allow_unused: bool = False,
-        check_device: bool = True, check_dtype: bool = True, check_stride: bool = True) -> None:
-    kwargs = dict(check_device=check_device, check_dtype=check_dtype, check_stride=check_stride)
+        check_device: bool = True, check_dtype: bool = True, check_stride: bool = True, **kwargs) -> None:
+    kwargs = dict(check_device=check_device, check_dtype=check_dtype, check_stride=check_stride, **kwargs)
 
     grad = torch.rand_like(actual)
 
