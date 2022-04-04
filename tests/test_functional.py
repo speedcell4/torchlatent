@@ -1,16 +1,15 @@
 import torch
 from hypothesis import given, strategies as st
 
-from tests.strategies import devices, sizes, TINY_TOKEN_SIZE, TINY_BATCH_SIZE
+from tests.strategies import device, sizes, TINY_TOKEN_SIZE, TINY_BATCH_SIZE
 from tests.utils import assert_close, assert_grad_close
 from torchlatent.functional import logaddexp, logsumexp
 
 
 @given(
-    device=devices(),
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE)
 )
-def test_logaddexp(device, token_sizes):
+def test_logaddexp(token_sizes):
     x = torch.randn(token_sizes, device=device, requires_grad=True)
     y = torch.randn(token_sizes, device=device, requires_grad=True)
 
@@ -23,10 +22,9 @@ def test_logaddexp(device, token_sizes):
 
 @given(
     data=st.data(),
-    device=devices(),
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE)
 )
-def test_logsumexp(data, device, token_sizes):
+def test_logsumexp(data, token_sizes):
     tensor = torch.randn(token_sizes, device=device, requires_grad=True)
     dim = data.draw(st.integers(min_value=-len(token_sizes), max_value=len(token_sizes) - 1))
 

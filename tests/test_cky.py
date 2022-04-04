@@ -4,19 +4,18 @@
 # from torch_struct import TreeCRF
 # from torchrua import pack_sequence, cat_sequence
 #
-# from tests.strategies import sizes, BATCH_SIZE, TOKEN_SIZE, EMBEDDING_DIM, devices, TINY_BATCH_SIZE
+# from tests.strategies import sizes, BATCH_SIZE, TOKEN_SIZE, EMBEDDING_DIM, device, TINY_BATCH_SIZE
 # from tests.utils import assert_grad_close
 # from torchlatent.cky import CkyDistribution, cky_indices, CkyDecoder
 #
 #
 # @given(
-#     device=devices(),
 #     token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
 #     embedding_dim=sizes(EMBEDDING_DIM),
 #     num_tags=sizes(TOKEN_SIZE),
 #     bias=st.booleans(),
 # )
-# def test_cky_catted_max(device, token_sizes, embedding_dim, num_tags, bias):
+# def test_cky_catted_max(token_sizes, embedding_dim, num_tags, bias):
 #     sequence = cat_sequence([
 #         torch.randn((token_size, embedding_dim), requires_grad=True, device=device)
 #         for token_size in token_sizes
@@ -29,13 +28,12 @@
 #
 #
 # @given(
-#     device=devices(),
 #     token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
 #     embedding_dim=sizes(EMBEDDING_DIM),
 #     num_tags=sizes(TOKEN_SIZE),
 #     bias=st.booleans(),
 # )
-# def test_cky_packed_max(device, token_sizes, embedding_dim, num_tags, bias):
+# def test_cky_packed_max(token_sizes, embedding_dim, num_tags, bias):
 #     sequence = pack_sequence([
 #         torch.randn((token_size, embedding_dim), requires_grad=True, device=device)
 #         for token_size in token_sizes
@@ -48,11 +46,10 @@
 #
 #
 # @given(
-#     device=devices(),
 #     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
 #     num_tags=sizes(TOKEN_SIZE),
 # )
-# def test_cky_log_partitions(device, token_sizes, num_tags):
+# def test_cky_log_partitions(token_sizes, num_tags):
 #     scores = torch.randn(
 #         (len(token_sizes), max(token_sizes), max(token_sizes), num_tags),
 #         requires_grad=True, device=device,

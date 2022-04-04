@@ -12,15 +12,11 @@ NUM_CONJUGATES = 5
 
 EMBEDDING_DIM = 25
 
-
-@st.composite
-def devices(draw):
-    if not torch.cuda.is_available():
-        device = torch.device('cpu')
-    else:
-        device = torch.device('cuda:0')
-    _ = torch.empty((1,), device=device)
-    return device
+if torch.cuda.is_available():
+    device = torch.device('cuda:0')
+else:
+    device = torch.device('cpu')
+_ = torch.empty((1,), device=device)
 
 
 @st.composite
