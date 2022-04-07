@@ -7,16 +7,16 @@ import torch
 from torch import Tensor
 from torch import nn
 from torch.distributions.utils import lazy_property
-from torch.nn import init
 from torch.nn import functional as F
+from torch.nn import init
 from torch.types import Device
 
 from torchlatent.abc import DistributionABC
 from torchlatent.semiring import Semiring, Log, Max
-from torchrua import ReductionIndices, accumulate_sizes
-from torchrua import head_catted_indices, last_catted_indices, reduce_catted_indices
-from torchrua import head_packed_indices, last_packed_indices, reduce_packed_indices
-from torchrua import roll_catted_indices, cat_packed_indices, CattedSequence, PackedSequence
+from torchrua import CattedSequence, PackedSequence
+from torchrua import ReductionIndices, accumulate_sizes, minor_sizes_to_ptr
+from torchrua import reduce_catted_indices
+from torchrua import reduce_packed_indices
 
 Sequence = Union[CattedSequence, PackedSequence]
 
@@ -92,27 +92,30 @@ def crf_scores_packed_indices(sequence: PackedSequence, device: Device = None):
 
     batch_sizes = sequence.batch_sizes.to(device=device)
     unsorted_indices = sequence.unsorted_indices.to(device=device)
-    curr, token_sizes = cat_packed_indices(batch_sizes=batch_sizes, unsorted_indices=unsorted_indices, device=device)
+    acc_batch_sizes = F.pad(batch_sizes.cumsum(dim=0), [2, -1])
 
-    prev = roll_catted_indices(token_sizes=token_sizes, device=device, shifts=1)
-    head = head_packed_indices(batch_sizes=batch_sizes, device=device, unsorted_indices=unsorted_indices)
-    last = last_packed_indices(batch_sizes=batch_sizes, device=device, unsorted_indices=unsorted_indices)
-    return head, last, curr[prev], curr, token_sizes, unsorted_indices
+    batch_ptr, token_ptr, token_sizes = minor_sizes_to_ptr(
+        token_sizes=batch_sizes, token_ptr=unsorted_indices,
+    )
+    prev = acc_batch_sizes[token_ptr + 0] + batch_ptr
+    curr = acc_batch_sizes[token_ptr + 1] + batch_ptr
+    last = acc_batch_sizes[token_sizes] + unsorted_indices
+
+    return unsorted_indices, last, prev, curr, token_sizes, unsorted_indices
 
 
-def crf_scores(sequence: Sequence, emissions: Tensor,
-               transitions: Tuple[Tensor, Tensor, Tensor], semiring: Type[Semiring]) -> Tensor:
+def crf_scores(sequence: Sequence, emissions: Tensor, transitions: Tuple[Tensor, Tensor, Tensor],
+               semiring: Type[Semiring]) -> Tensor:
     head, last, prev, curr, token_sizes, unsorted_indices = crf_scores_indices(sequence)
 
-    sequence, *_ = sequence
     transitions, head_transitions, last_transitions = transitions
     c = torch.arange(transitions.size()[1], device=emissions.device)
 
-    emissions = emissions[curr[:, None], c[None, :], sequence[curr]]
-    transitions = transitions[curr[:, None], c[None, :], sequence[prev], sequence[curr]]
+    emissions = emissions[curr[:, None], c[None, :], sequence.data[curr]]
+    transitions = transitions[curr[:, None], c[None, :], sequence.data[prev], sequence.data[curr]]
     transitions[accumulate_sizes(sizes=token_sizes)] = semiring.one
-    head_transitions = head_transitions[unsorted_indices[:, None], c[None, :], sequence[head]]
-    last_transitions = last_transitions[unsorted_indices[:, None], c[None, :], sequence[last]]
+    head_transitions = head_transitions[unsorted_indices[:, None], c[None, :], sequence.data[head]]
+    last_transitions = last_transitions[unsorted_indices[:, None], c[None, :], sequence.data[last]]
 
     emissions = semiring.segment_prod(semiring.mul(emissions, transitions), sizes=token_sizes)
     return semiring.mul(emissions, semiring.mul(head_transitions, last_transitions))
