@@ -8,13 +8,14 @@ from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.types import Device
+
+from torchlatent.abc import DistributionABC
+from torchlatent.semiring import Semiring, Log, Max
 from torchrua import ReductionIndices, accumulate_sizes
 from torchrua import head_catted_indices, last_catted_indices, reduce_catted_indices
 from torchrua import head_packed_indices, last_packed_indices, reduce_packed_indices
 from torchrua import roll_catted_indices, cat_packed_indices, CattedSequence, PackedSequence
-
-from torchlatent.abc import DistributionABC
-from torchlatent.semiring import Semiring, Log, Max
+from functools import singledispatch
 
 Sequence = Union[CattedSequence, PackedSequence]
 
@@ -29,7 +30,12 @@ class CrfIndices(NamedTuple):
     indices: ReductionIndices
 
 
-@torch.no_grad()
+@singledispatch
+def broadcast_shapes(sequence: Sequence, transitions: Tuple[Tensor, Tensor, Tensor]) -> Sequence:
+    raise TypeError(f'type {type(sequence)} is not supported')
+
+
+@broadcast_shapes.register
 def broadcast_catted_shapes(sequence: CattedSequence, transitions: Tuple[Tensor, Tensor, Tensor]):
     sequence, token_sizes = sequence
     transitions, head_transitions, last_transitions = transitions
@@ -44,7 +50,7 @@ def broadcast_catted_shapes(sequence: CattedSequence, transitions: Tuple[Tensor,
     return torch.broadcast_shapes((t1, c1, h1), (t2, c2, 1), (1, c3, h3), (1, c4, h4))
 
 
-@torch.no_grad()
+@broadcast_shapes.register
 def broadcast_packed_shapes(sequence: PackedSequence, transitions: Tuple[Tensor, Tensor, Tensor]):
     sequence, batch_sizes, _, _ = sequence
     transitions, head_transitions, last_transitions = transitions
@@ -251,13 +257,7 @@ class CrfDecoder(CrfDecoderABC):
 
     def forward_parameters(self, emissions: Sequence):
         transitions = (self.transitions, self.head_transitions, self.last_transitions)
-
-        if isinstance(emissions, CattedSequence):
-            t, c, h = broadcast_catted_shapes(sequence=emissions, transitions=transitions)
-        elif isinstance(emissions, PackedSequence):
-            t, c, h = broadcast_packed_shapes(sequence=emissions, transitions=transitions)
-        else:
-            raise KeyError(f'type {type(emissions)} is not supported')
+        t, c, h = broadcast_shapes(emissions, transitions=transitions)
 
         emissions = emissions.data.expand((t, c, -1))
         transitions = self.transitions.expand((t, c, -1, -1))
