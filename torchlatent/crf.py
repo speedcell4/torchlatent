@@ -8,6 +8,7 @@ from torch import Tensor
 from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn import init
+from torch.nn import functional as F
 from torch.types import Device
 
 from torchlatent.abc import DistributionABC
@@ -76,13 +77,12 @@ def crf_scores_catted_indices(sequence: CattedSequence, device: Device = None):
         device = sequence.data.device
 
     token_sizes = sequence.token_sizes.to(device=device)
-    curr = torch.arange(token_sizes.sum().item(), device=device)
+    acc_token_sizes = token_sizes.cumsum(dim=0)
+
+    index = torch.arange(token_sizes.sum().item(), device=device)
     unsorted_indices = torch.arange(token_sizes.size()[0], device=device)
 
-    prev = roll_catted_indices(token_sizes=token_sizes, device=device, shifts=1)
-    head = head_catted_indices(token_sizes=token_sizes, device=device)
-    last = last_catted_indices(token_sizes=token_sizes, device=device)
-    return head, last, prev, curr, token_sizes, unsorted_indices
+    return F.pad(acc_token_sizes, [1, -1]), acc_token_sizes - 1, index - 1, index, token_sizes, unsorted_indices
 
 
 @crf_scores_indices.register
