@@ -1,13 +1,13 @@
 import torch
 from torch import Tensor
+from torchrua.reduction import reduce_sequence, ReductionIndices
 
 from torchlatent.functional import logsumexp, logaddexp
-from torchrua.reduction import reduce_sequence, ReductionIndices
-from torchrua.scatter import scatter_add, scatter_logsumexp
 
 __all__ = [
-    'Semiring',
-    'Std', 'Log', 'Max',
+    'Semiring', 'ExceptionSemiring',
+    'Std', 'Log', 'Max', 'Xen', 'Div',
+
 ]
 
 
@@ -107,14 +107,6 @@ class Log(Semiring):
         return torch.sum(tensor, dim=dim, keepdim=keepdim)
 
     @classmethod
-    def scatter_add(cls, tensor: Tensor, index: Tensor) -> Tensor:
-        return scatter_logsumexp(tensor=tensor, index=index)
-
-    @classmethod
-    def scatter_mul(cls, tensor: Tensor, index: Tensor) -> Tensor:
-        return scatter_add(tensor=tensor, index=index)
-
-    @classmethod
     def segment_sum(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         m = torch.segment_reduce(tensor, reduce='max', lengths=sizes, unsafe=True).detach()
         z = (tensor - torch.repeat_interleave(m, repeats=sizes)).exp()
@@ -148,6 +140,74 @@ class Max(Semiring):
     @classmethod
     def segment_sum(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
         return torch.segment_reduce(tensor, reduce='max', lengths=sizes, unsafe=True)
+
+    @classmethod
+    def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
+
+
+class ExceptionSemiring(Semiring):
+    @classmethod
+    def sum(cls, tensor: Tensor, log_p: Tensor, log_q: Tensor, dim: int, keepdim: bool = False) -> Tensor:
+        raise NotImplementedError
+
+    @classmethod
+    def segment_sum(cls, tensor: Tensor, log_p: Tensor, log_q: Tensor, sizes: Tensor) -> Tensor:
+        raise NotImplementedError
+
+
+class Xen(ExceptionSemiring):
+    zero = 0.
+    one = 0.
+
+    @classmethod
+    def add(cls, x: Tensor, y: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @classmethod
+    def mul(cls, x: Tensor, y: Tensor) -> Tensor:
+        return x + y
+
+    @classmethod
+    def sum(cls, tensor: Tensor, log_p: Tensor, log_q: Tensor, dim: int, keepdim: bool = False) -> Tensor:
+        return torch.sum((tensor - log_q) * log_p.exp(), dim=dim, keepdim=keepdim)
+
+    @classmethod
+    def prod(cls, tensor: Tensor, dim: int, keepdim: bool = False) -> Tensor:
+        return torch.sum(tensor, dim=dim, keepdim=keepdim)
+
+    @classmethod
+    def segment_sum(cls, tensor: Tensor, log_p: Tensor, log_q: Tensor, sizes: Tensor) -> Tensor:
+        return torch.segment_reduce((tensor - log_q) * log_p.exp(), reduce='sum', lengths=sizes, unsafe=True)
+
+    @classmethod
+    def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
+        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
+
+
+class Div(ExceptionSemiring):
+    zero = 0.
+    one = 0.
+
+    @classmethod
+    def add(cls, x: Tensor, y: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @classmethod
+    def mul(cls, x: Tensor, y: Tensor) -> Tensor:
+        return x + y
+
+    @classmethod
+    def sum(cls, tensor: Tensor, log_p: Tensor, log_q: Tensor, dim: int, keepdim: bool = False) -> Tensor:
+        return torch.sum((tensor - log_q + log_p) * log_p.exp(), dim=dim, keepdim=keepdim)
+
+    @classmethod
+    def prod(cls, tensor: Tensor, dim: int, keepdim: bool = False) -> Tensor:
+        return torch.sum(tensor, dim=dim, keepdim=keepdim)
+
+    @classmethod
+    def segment_sum(cls, tensor: Tensor, log_p: Tensor, log_q: Tensor, sizes: Tensor) -> Tensor:
+        return torch.segment_reduce((tensor - log_q + log_p) * log_p.exp(), reduce='sum', lengths=sizes, unsafe=True)
 
     @classmethod
     def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
