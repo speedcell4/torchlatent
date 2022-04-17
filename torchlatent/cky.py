@@ -92,12 +92,12 @@ def cky_partition_indices(token_sizes: Tensor, device: Device = None):
     return CkyIndices(
         token_size=token_size,
         cache_size=cache_size,
-        src=((y_ptr - x_ptr, z_ptr), (batch_ptr[z_ptr], x_ptr, y_ptr)),
+        src=((y_ptr - x_ptr, x_ptr + z_ptr - y_ptr), (batch_ptr[z_ptr], x_ptr, y_ptr)),
         tgt=(token_sizes - 1, acc_token_sizes),
     )
 
 
-def cky_partition(data: Tensor, indices: CkyIndices, semiring: Type[Semiring]) -> Tensor:
+def cky_partition(data: Tensor, indices: CkyIndices, *, semiring: Type[Semiring]) -> Tensor:
     token_size, cache_size, (src1, src2), tgt = indices
 
     size = (token_size, cache_size, *data.size()[3:])
@@ -111,7 +111,7 @@ def cky_partition(data: Tensor, indices: CkyIndices, semiring: Type[Semiring]) -
     for w in range(1, token_size):
         tensor1[w, :-w] = tensor2[-w - 1, w:] = semiring.mul(
             semiring.sum(semiring.mul(tensor1[:w, :-w], tensor2[-w:, w:]), dim=0),
-            tensor0[w, w:],
+            tensor0[w, :-w],
         )
 
     return tensor1[tgt]
@@ -205,8 +205,9 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
             return CattedSequence(data=dist.argmax, token_sizes=sequence.token_sizes * 2 - 1)
 
         if isinstance(sequence, PackedSequence):
-            token_sizes = transpose_sizes(sizes=sequence.batch_sizes)[sequence.unsorted_indices] * 2 - 1
-            return pack_catted_sequence(sequence=CattedSequence(dist.argmax, token_sizes=token_sizes))
+            token_sizes = transpose_sizes(sizes=sequence.batch_sizes)
+            token_sizes = token_sizes[sequence.unsorted_indices] * 2 - 1
+            return pack_catted_sequence(sequence=dist.argmax, token_sizes=token_sizes)
 
         raise KeyError(f'type {type(sequence)} is not supported')
 
