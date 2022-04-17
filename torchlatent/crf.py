@@ -1,3 +1,4 @@
+from functools import singledispatch
 from typing import NamedTuple, Union
 from typing import Tuple
 from typing import Type
@@ -6,15 +7,16 @@ import torch
 from torch import Tensor
 from torch import nn
 from torch.distributions.utils import lazy_property
+from torch.nn import functional as F
 from torch.nn import init
 from torch.types import Device
-from torchrua import ReductionIndices, accumulate_sizes
-from torchrua import head_catted_indices, last_catted_indices, reduce_catted_indices
-from torchrua import head_packed_indices, last_packed_indices, reduce_packed_indices
-from torchrua import roll_catted_indices, cat_packed_indices, CattedSequence, PackedSequence
 
 from torchlatent.abc import DistributionABC
 from torchlatent.semiring import Semiring, Log, Max
+from torchrua import CattedSequence, PackedSequence
+from torchrua import ReductionIndices, accumulate_sizes, minor_sizes_to_ptr
+from torchrua import reduce_catted_indices
+from torchrua import reduce_packed_indices
 
 Sequence = Union[CattedSequence, PackedSequence]
 
@@ -29,7 +31,12 @@ class CrfIndices(NamedTuple):
     indices: ReductionIndices
 
 
-@torch.no_grad()
+@singledispatch
+def broadcast_shapes(sequence: Sequence, transitions: Tuple[Tensor, Tensor, Tensor]) -> Sequence:
+    raise TypeError(f'type {type(sequence)} is not supported')
+
+
+@broadcast_shapes.register
 def broadcast_catted_shapes(sequence: CattedSequence, transitions: Tuple[Tensor, Tensor, Tensor]):
     sequence, token_sizes = sequence
     transitions, head_transitions, last_transitions = transitions
@@ -44,7 +51,7 @@ def broadcast_catted_shapes(sequence: CattedSequence, transitions: Tuple[Tensor,
     return torch.broadcast_shapes((t1, c1, h1), (t2, c2, 1), (1, c3, h3), (1, c4, h4))
 
 
-@torch.no_grad()
+@broadcast_shapes.register
 def broadcast_packed_shapes(sequence: PackedSequence, transitions: Tuple[Tensor, Tensor, Tensor]):
     sequence, batch_sizes, _, _ = sequence
     transitions, head_transitions, last_transitions = transitions
@@ -59,56 +66,70 @@ def broadcast_packed_shapes(sequence: PackedSequence, transitions: Tuple[Tensor,
     return torch.broadcast_shapes((t1, c1, h1), (t2, c2, 1), (1, c3, h3), (1, c4, h4))
 
 
-@torch.no_grad()
-def crf_reduce_catted_indices(token_sizes: Tensor, device: Device = None):
-    if device is None:
-        device = token_sizes.device
+@singledispatch
+def crf_scores_indices(sequence: Sequence, device: Device = None):
+    raise TypeError(f'type {type(sequence)} is not supported')
 
-    token_sizes = token_sizes.to(device=device)
-    curr = torch.arange(token_sizes.sum().item(), device=device)
+
+@crf_scores_indices.register
+def crf_scores_catted_indices(sequence: CattedSequence, device: Device = None):
+    if device is None:
+        device = sequence.data.device
+
+    token_sizes = sequence.token_sizes.to(device=device)
+    acc_token_sizes = token_sizes.cumsum(dim=0)
+
+    index = torch.arange(token_sizes.sum().item(), device=device)
     unsorted_indices = torch.arange(token_sizes.size()[0], device=device)
 
-    prev = roll_catted_indices(token_sizes=token_sizes, device=device, shifts=1)
-    head = head_catted_indices(token_sizes=token_sizes, device=device)
-    last = last_catted_indices(token_sizes=token_sizes, device=device)
-    return head, last, prev, curr, token_sizes, unsorted_indices
+    return F.pad(acc_token_sizes, [1, -1]), acc_token_sizes - 1, index - 1, index, token_sizes, unsorted_indices
 
 
-@torch.no_grad()
-def crf_reduce_packed_indices(batch_sizes: Tensor, unsorted_indices: Tensor, device: Device):
+@crf_scores_indices.register
+def crf_scores_packed_indices(sequence: PackedSequence, device: Device = None):
     if device is None:
-        if unsorted_indices is not None:
-            device = unsorted_indices.device
-        else:
-            device = batch_sizes.device
+        device = sequence.data.device
 
-    batch_sizes = batch_sizes.to(device=device)
-    unsorted_indices = unsorted_indices.to(device=device)
-    curr, token_sizes = cat_packed_indices(batch_sizes=batch_sizes, unsorted_indices=unsorted_indices, device=device)
+    batch_sizes = sequence.batch_sizes.to(device=device)
+    unsorted_indices = sequence.unsorted_indices.to(device=device)
+    acc_batch_sizes = F.pad(batch_sizes.cumsum(dim=0), [2, -1])
 
-    prev = roll_catted_indices(token_sizes=token_sizes, device=device, shifts=1)
-    head = head_packed_indices(batch_sizes=batch_sizes, device=device, unsorted_indices=unsorted_indices)
-    last = last_packed_indices(batch_sizes=batch_sizes, device=device, unsorted_indices=unsorted_indices)
-    return head, last, curr[prev], curr, token_sizes, unsorted_indices
+    batch_ptr, token_ptr, token_sizes = minor_sizes_to_ptr(
+        token_sizes=batch_sizes, token_ptr=unsorted_indices,
+    )
+    prev = acc_batch_sizes[token_ptr + 0] + batch_ptr
+    curr = acc_batch_sizes[token_ptr + 1] + batch_ptr
+    last = acc_batch_sizes[token_sizes] + unsorted_indices
+
+    return unsorted_indices, last, prev, curr, token_sizes, unsorted_indices
+
+
+def crf_scores(sequence: Sequence, emissions: Tensor, transitions: Tuple[Tensor, Tensor, Tensor],
+               semiring: Type[Semiring]) -> Tensor:
+    head, last, prev, curr, token_sizes, unsorted_indices = crf_scores_indices(sequence)
+
+    transitions, head_transitions, last_transitions = transitions
+    c = torch.arange(transitions.size()[1], device=emissions.device)
+
+    emissions = emissions[curr[:, None], c[None, :], sequence.data[curr]]
+    transitions = transitions[curr[:, None], c[None, :], sequence.data[prev], sequence.data[curr]]
+    transitions[accumulate_sizes(sizes=token_sizes)] = semiring.one
+    head_transitions = head_transitions[unsorted_indices[:, None], c[None, :], sequence.data[head]]
+    last_transitions = last_transitions[unsorted_indices[:, None], c[None, :], sequence.data[last]]
+
+    emissions = semiring.segment_prod(semiring.mul(emissions, transitions), sizes=token_sizes)
+    return semiring.mul(emissions, semiring.mul(head_transitions, last_transitions))
 
 
 @torch.no_grad()
 def crf_indices(emissions: Sequence) -> CrfIndices:
+    head, last, prev, curr, token_sizes, unsorted_indices = crf_scores_indices(emissions)
     if isinstance(emissions, CattedSequence):
-        head, last, prev, curr, token_sizes, unsorted_indices = crf_reduce_catted_indices(
-            token_sizes=emissions.token_sizes,
-            device=emissions.data.device,
-        )
         indices = reduce_catted_indices(
             token_sizes=emissions.token_sizes,
             device=emissions.data.device,
         )
     elif isinstance(emissions, PackedSequence):
-        head, last, prev, curr, token_sizes, unsorted_indices = crf_reduce_packed_indices(
-            batch_sizes=emissions.batch_sizes,
-            unsorted_indices=emissions.unsorted_indices,
-            device=emissions.data.device,
-        )
         indices = reduce_packed_indices(
             batch_sizes=emissions.batch_sizes,
             unsorted_indices=emissions.unsorted_indices,
@@ -124,23 +145,6 @@ def crf_indices(emissions: Sequence) -> CrfIndices:
         unsorted_indices=unsorted_indices,
         indices=indices,
     )
-
-
-def crf_reduce(emissions: Tensor, targets: Tensor, transitions: Tuple[Tensor, Tensor, Tensor],
-               indices: CrfIndices, semiring: Type[Semiring]) -> Tensor:
-    head, last, prev, curr, token_sizes, unsorted_indices, _ = indices
-
-    transitions, head_transitions, last_transitions = transitions
-    c = torch.arange(transitions.size()[1], device=emissions.device)
-
-    emissions = emissions[curr[:, None], c[None, :], targets[curr]]
-    transitions = transitions[curr[:, None], c[None, :], targets[prev], targets[curr]]
-    transitions[accumulate_sizes(sizes=token_sizes)] = semiring.one
-    head_transitions = head_transitions[unsorted_indices[:, None], c[None, :], targets[head]]
-    last_transitions = last_transitions[unsorted_indices[:, None], c[None, :], targets[last]]
-
-    emissions = semiring.segment_prod(semiring.mul(emissions, transitions), sizes=token_sizes)
-    return semiring.mul(emissions, semiring.mul(head_transitions, last_transitions))
 
 
 def crf_partition(emissions: Tensor, transitions: Tuple[Tensor, Tensor, Tensor],
@@ -172,11 +176,10 @@ class CrfDistribution(DistributionABC):
         self.transitions = transitions
 
     def log_scores(self, targets: Sequence) -> Tensor:
-        return crf_reduce(
+        return crf_scores(
             emissions=self.emissions,
-            targets=targets.data,
+            sequence=targets,
             transitions=self.transitions,
-            indices=self.indices,
             semiring=Log,
         )
 
@@ -251,13 +254,7 @@ class CrfDecoder(CrfDecoderABC):
 
     def forward_parameters(self, emissions: Sequence):
         transitions = (self.transitions, self.head_transitions, self.last_transitions)
-
-        if isinstance(emissions, CattedSequence):
-            t, c, h = broadcast_catted_shapes(sequence=emissions, transitions=transitions)
-        elif isinstance(emissions, PackedSequence):
-            t, c, h = broadcast_packed_shapes(sequence=emissions, transitions=transitions)
-        else:
-            raise KeyError(f'type {type(emissions)} is not supported')
+        t, c, h = broadcast_shapes(emissions, transitions=transitions)
 
         emissions = emissions.data.expand((t, c, -1))
         transitions = self.transitions.expand((t, c, -1, -1))
