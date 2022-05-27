@@ -207,7 +207,7 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
         if isinstance(sequence, PackedSequence):
             token_sizes = transpose_sizes(sizes=sequence.batch_sizes)
             token_sizes = token_sizes[sequence.unsorted_indices] * 2 - 1
-            return pack_catted_sequence(sequence=dist.argmax, token_sizes=token_sizes)
+            return pack_catted_sequence(CattedSequence(data=dist.argmax, token_sizes=token_sizes))
 
         raise KeyError(f'type {type(sequence)} is not supported')
 

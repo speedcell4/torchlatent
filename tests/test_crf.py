@@ -1,13 +1,12 @@
 import torch
 import torchcrf
 from hypothesis import given
-from torch.testing import assert_close
-
-from tests.strategies import device, sizes, TOKEN_SIZE, TINY_BATCH_SIZE, NUM_CONJUGATES, TINY_TOKEN_SIZE
-from tests.utils import assert_grad_close, assert_equal
-from torchlatent.crf import CrfDecoder
 from torchrua import cat_sequence, pad_catted_indices, pack_catted_indices
 from torchrua import pad_sequence, pad_packed_indices, pack_sequence
+
+from tests.assertion import assert_close, assert_grad_close
+from tests.strategy import device, sizes, TOKEN_SIZE, TINY_BATCH_SIZE, NUM_CONJUGATES, TINY_TOKEN_SIZE
+from torchlatent.crf import CrfDecoder
 
 
 @given(
@@ -134,8 +133,8 @@ def test_crf_catted_decode(token_sizes, num_tags):
     excepted = excepted_decoder.decode(emissions=padded_emissions, mask=mask.byte())
     excepted, excepted_token_sizes = cat_sequence([torch.tensor(x, device=device) for x in excepted])
 
-    assert_equal(actual=actual[:, 0], expected=excepted)
-    assert_equal(actual=actual_token_sizes, expected=excepted_token_sizes)
+    assert_close(actual=actual[:, 0], expected=excepted)
+    assert_close(actual=actual_token_sizes, expected=excepted_token_sizes)
 
 
 @given(
@@ -277,10 +276,10 @@ def test_crf_packed_decode(token_sizes, num_tags):
     excepted = excepted_decoder.decode(emissions=padded_emissions, mask=mask.byte())
     excepted = pack_sequence([torch.tensor(x, device=device) for x in excepted])
 
-    assert_equal(actual=actual.data[:, 0], expected=excepted.data)
-    assert_equal(actual=actual.batch_sizes, expected=excepted.batch_sizes)
-    assert_equal(actual=actual.sorted_indices, expected=excepted.sorted_indices)
-    assert_equal(actual=actual.unsorted_indices, expected=excepted.unsorted_indices)
+    assert_close(actual=actual.data[:, 0], expected=excepted.data)
+    assert_close(actual=actual.batch_sizes, expected=excepted.batch_sizes)
+    assert_close(actual=actual.sorted_indices, expected=excepted.sorted_indices)
+    assert_close(actual=actual.unsorted_indices, expected=excepted.unsorted_indices)
 
 
 @given(
