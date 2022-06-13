@@ -20,7 +20,7 @@ def test_cky_catted_max(token_sizes, embedding_dim, num_tags, bias):
         for token_size in token_sizes
     ])
 
-    decoder = CkyDecoder(in_features=embedding_dim, out_features=num_tags, bias=bias)
+    decoder = CkyDecoder(in_features=embedding_dim, out_features=num_tags, bias=bias).to(device=device)
     cky = decoder.forward(sequence=sequence)
 
     assert_close(actual=cky.max, expected=cky.log_scores(decoder.decode(sequence=sequence)))
@@ -38,7 +38,7 @@ def test_cky_packed_max(token_sizes, embedding_dim, num_tags, bias):
         for token_size in token_sizes
     ])
 
-    decoder = CkyDecoder(in_features=embedding_dim, out_features=num_tags, bias=bias)
+    decoder = CkyDecoder(in_features=embedding_dim, out_features=num_tags, bias=bias).to(device=device)
     cky = decoder.forward(sequence=sequence)
 
     assert_close(actual=cky.max, expected=cky.log_scores(decoder.decode(sequence=sequence)))
