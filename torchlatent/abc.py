@@ -34,7 +34,7 @@ class DistributionABC(Distribution, metaclass=ABCMeta):
     def argmax(self) -> Tensor:
         grad, = torch.autograd.grad(
             self.max, self.emissions, torch.ones_like(self.max),
-            create_graph=False, only_inputs=True, allow_unused=False,
+            create_graph=False, only_inputs=True, allow_unused=True,
         )
         return grad
 
@@ -42,7 +42,8 @@ class DistributionABC(Distribution, metaclass=ABCMeta):
     def marginals(self) -> Tensor:
         grad, = torch.autograd.grad(
             self.log_partitions, self.emissions, torch.ones_like(self.log_partitions),
-            create_graph=False, only_inputs=True, allow_unused=False,
+            create_graph=True, only_inputs=True, allow_unused=True,
+
         )
         return grad
 
