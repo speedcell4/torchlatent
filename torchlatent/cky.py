@@ -11,25 +11,12 @@ from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
 
 from torchlatent.abc import DistributionABC
+from torchlatent.nn.classifier import BiaffineClassifier
 from torchlatent.semiring import Semiring, Log, Max
 from torchlatent.types import Sequence
-from torchrua import CattedSequence, transpose_sizes, pack_catted_sequence, cat_packed_indices
+from torchrua import CattedSequence, transpose_sizes, pack_catted_sequence, cat_packed_indices, RuaSequential
 from torchrua import major_sizes_to_ptr, accumulate_sizes
 from torchrua import pad_packed_sequence, pad_catted_sequence
-
-__all__ = [
-    'cky_scores_indices',
-    'cky_scores_catted_indices',
-    'cky_scores_packed_indices',
-
-    'CkyIndices',
-    'cky_partition_indices',
-    'cky_partition',
-
-    'CkyDistribution',
-    'CkyDecoderABC',
-    'CkyDecoder',
-]
 
 
 @singledispatch
@@ -166,11 +153,8 @@ class CkyDistribution(DistributionABC):
         raise NotImplementedError
 
 
-class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
+class CkyLayerABC(nn.Module, metaclass=ABCMeta):
     def reset_parameters(self) -> None:
-        raise NotImplementedError
-
-    def extra_repr(self) -> str:
         raise NotImplementedError
 
     def forward_scores(self, features: Tensor, *args, **kwargs) -> Tensor:
@@ -212,27 +196,56 @@ class CkyDecoderABC(nn.Module, metaclass=ABCMeta):
         raise KeyError(f'type {type(sequence)} is not supported')
 
 
-class CkyDecoder(CkyDecoderABC):
-    def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
-        super(CkyDecoder, self).__init__()
+class CkyLayer(CkyLayerABC):
+    def __init__(self, num_targets: int, num_conjugates: int) -> None:
+        super(CkyLayer, self).__init__()
 
-        self.fc = nn.Bilinear(
-            in1_features=in_features,
-            in2_features=in_features,
-            out_features=out_features,
-            bias=bias,
-        )
-
-    def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.extra_repr()})'
+        self.num_targets = num_targets
+        self.num_conjugates = num_conjugates
 
     def extra_repr(self) -> str:
         return ', '.join([
-            f'in_features={self.fc.in_features}',
-            f'in_features={self.fc.out_features}',
-            f'bias={self.fc1.bias is not None}',
+            f'num_targets={self.num_targets}',
+            f'num_conjugates={self.num_conjugates}',
         ])
 
-    def forward_scores(self, features: Tensor, *args, **kwargs) -> Tensor:
-        x, y = torch.broadcast_tensors(features[..., :, None, :], features[..., None, :, :])
-        return self.fc(x, y)
+
+class CkyDecoder(nn.Module):
+    def __init__(self, in_features: int, hidden_features: int,
+                 num_targets: int, num_conjugates: int, dropout: float) -> None:
+        super(CkyDecoder, self).__init__()
+
+        self.in_features = in_features
+        self.hidden_features = hidden_features
+        self.num_targets = num_targets
+        self.num_conjugates = num_conjugates
+
+        self.ffn1 = RuaSequential(
+            nn.Linear(in_features, hidden_features, bias=True),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+        self.ffn2 = RuaSequential(
+            nn.Linear(in_features, hidden_features, bias=True),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+        self.classifier = BiaffineClassifier(
+            num_conjugates=num_conjugates,
+            in_features1=hidden_features,
+            in_features2=hidden_features,
+            out_features=num_targets,
+            bias=False,
+        )
+
+        self.cky = CkyLayer(
+            num_targets=num_targets,
+            num_conjugates=num_conjugates,
+        )
+
+    def forward(self, sequence: Sequence) -> CkyDistribution:
+        features1, _ = self.ffn1(sequence)
+        features2, _ = self.ffn2(sequence)
+
+        emissions = self.classifier(features1, features2)
+        return self.cky(emissions)

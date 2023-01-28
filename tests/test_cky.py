@@ -5,7 +5,7 @@ from torchrua import pack_sequence, cat_sequence
 
 from tests.assertion import assert_close, assert_grad_close
 from tests.strategy import sizes, BATCH_SIZE, TOKEN_SIZE, EMBEDDING_DIM, device, TINY_BATCH_SIZE
-from torchlatent.cky import CkyDistribution, cky_partition_indices, CkyDecoder
+from torchlatent.cky import CkyDistribution, cky_partition_indices, CkyLayer
 
 
 @given(
@@ -20,7 +20,7 @@ def test_cky_catted_max(token_sizes, embedding_dim, num_tags, bias):
         for token_size in token_sizes
     ])
 
-    decoder = CkyDecoder(in_features=embedding_dim, out_features=num_tags, bias=bias).to(device=device)
+    decoder = CkyLayer(in_features=embedding_dim, out_features=num_tags, bias=bias).to(device=device)
     cky = decoder.forward(sequence=sequence)
 
     assert_close(actual=cky.max, expected=cky.log_scores(decoder.decode(sequence=sequence)))
@@ -38,7 +38,7 @@ def test_cky_packed_max(token_sizes, embedding_dim, num_tags, bias):
         for token_size in token_sizes
     ])
 
-    decoder = CkyDecoder(in_features=embedding_dim, out_features=num_tags, bias=bias).to(device=device)
+    decoder = CkyLayer(in_features=embedding_dim, out_features=num_tags, bias=bias).to(device=device)
     cky = decoder.forward(sequence=sequence)
 
     assert_close(actual=cky.max, expected=cky.log_scores(decoder.decode(sequence=sequence)))

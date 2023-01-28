@@ -13,17 +13,8 @@ class Classifier(nn.Module):
         self.out_features = out_features
         self.num_conjugates = num_conjugates
 
-        self.weight = nn.Parameter(torch.empty((num_conjugates, out_features, in_features)))
-        self.bias = nn.Parameter(torch.empty((num_conjugates, out_features,))) if bias else 0
-
-        self.reset_parameters()
-
-    @torch.no_grad()
-    def reset_parameters(self) -> None:
-        init.zeros_(self.weight)
-
-        if torch.is_tensor(self.bias):
-            init.zeros_(self.bias)
+        self.weight = nn.Parameter(torch.zeros((num_conjugates, out_features, in_features)))
+        self.bias = nn.Parameter(torch.zeros((num_conjugates, out_features,))) if bias else 0
 
     def extra_repr(self) -> str:
         return ', '.join([
@@ -47,21 +38,10 @@ class BiaffineClassifier(nn.Module):
         self.out_features = out_features
         self.num_conjugates = num_conjugates
 
-        self.weight0 = nn.Parameter(torch.empty((num_conjugates, out_features, in_features1, in_features2)))
-        self.weight1 = nn.Parameter(torch.empty((num_conjugates, out_features, in_features1)))
-        self.weight2 = nn.Parameter(torch.empty((num_conjugates, out_features, in_features2)))
-        self.bias = nn.Parameter(torch.empty((num_conjugates, out_features))) if bias else 0
-
-        self.reset_parameters()
-
-    @torch.no_grad()
-    def reset_parameters(self) -> None:
-        init.zeros_(self.weight0)
-        init.zeros_(self.weight1)
-        init.zeros_(self.weight2)
-
-        if torch.is_tensor(self.bias):
-            init.zeros_(self.bias)
+        self.weight0 = nn.Parameter(torch.zeros((num_conjugates, out_features, in_features1, in_features2)))
+        self.weight1 = nn.Parameter(torch.zeros((num_conjugates, out_features, in_features1)))
+        self.weight2 = nn.Parameter(torch.zeros((num_conjugates, out_features, in_features2)))
+        self.bias = nn.Parameter(torch.zeros((num_conjugates, out_features))) if bias else 0
 
     def extra_repr(self) -> str:
         return ', '.join([
