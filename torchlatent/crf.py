@@ -10,13 +10,14 @@ from torch.distributions.utils import lazy_property
 from torch.nn import functional as F
 from torch.nn import init
 from torch.types import Device
-
-from torchlatent.abc import DistributionABC
-from torchlatent.semiring import Semiring, Log, Max
-from torchrua import CattedSequence, PackedSequence
+from torchrua import CattedSequence, PackedSequence, RuaSequential
 from torchrua import ReductionIndices, accumulate_sizes, minor_sizes_to_ptr
 from torchrua import reduce_catted_indices
 from torchrua import reduce_packed_indices
+
+from torchlatent.abc import DistributionABC
+from torchlatent.nn.classifier import Classifier
+from torchlatent.semiring import Semiring, Log, Max
 
 Sequence = Union[CattedSequence, PackedSequence]
 
@@ -272,3 +273,51 @@ class CrfLayer(CrfLayerABC):
     def decode(self, emissions: Sequence, indices: CrfIndices = None) -> Sequence:
         dist: CrfDistribution = self.forward(emissions=emissions, indices=indices)
         return emissions._replace(data=dist.argmax)
+
+
+class CrfDecoder(nn.Module):
+    def __init__(self, in_features: int, num_targets: int, num_conjugates: int, dropout: float) -> None:
+        super(CrfDecoder, self).__init__()
+
+        self.in_features = in_features
+        self.num_targets = num_targets
+        self.num_conjugates = num_conjugates
+        num_conjugates = max(1, num_conjugates)
+
+        self.classifier = RuaSequential(
+            nn.Dropout(dropout),
+            Classifier(
+                num_conjugates=num_conjugates,
+                in_features=in_features,
+                out_features=num_targets,
+                bias=False,
+            )
+        )
+
+        self.crf = CrfLayer(
+            num_targets=num_targets,
+            num_conjugates=num_conjugates,
+        )
+
+    def forward(self, sequence: Sequence) -> CrfDistribution:
+        if self.num_conjugates == 0:
+            sequence = sequence._replace(data=sequence.data[..., None, :])
+
+        emissions = self.classifier(sequence)
+        return self.crf(emissions)
+
+    def fit(self, sequence: Sequence, targets: Sequence) -> Tensor:
+        dist: CrfDistribution = self(sequence=sequence)
+        loss = dist.log_partitions - dist.log_scores(targets=targets)
+
+        if self.num_conjugates == 0:
+            loss = loss[..., 0]
+        return loss
+
+    def decode(self, sequence: Sequence) -> Sequence:
+        dist: CrfDistribution = self(sequence=sequence)
+        argmax = dist.argmax
+
+        if self.num_conjugates == 0:
+            argmax = argmax[..., 0]
+        return sequence._replace(data=argmax)
