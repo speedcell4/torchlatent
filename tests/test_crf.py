@@ -1,23 +1,66 @@
 import torch
 import torchcrf
 from hypothesis import given
-from torch.testing import assert_close
 from torchrua import cat_sequence, pad_catted_indices, pack_catted_indices
 from torchrua import pad_sequence, pad_packed_indices, pack_sequence
 
-from tests.strategies import devices, sizes, TOKEN_SIZE, TINY_BATCH_SIZE, NUM_CONJUGATES, TINY_TOKEN_SIZE
-from tests.utils import assert_grad_close, assert_equal
+from tests.assertion import assert_close, assert_grad_close
+from tests.strategy import device, sizes, TOKEN_SIZE, TINY_BATCH_SIZE, NUM_CONJUGATES, TINY_TOKEN_SIZE
 from torchlatent.crf import CrfDecoder
 
 
 @given(
-    device=devices(),
     token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
     num_tags=sizes(TOKEN_SIZE),
 )
-def test_crf_catted_fit(device, token_sizes, num_tags):
-    actual_decoder = CrfDecoder(num_tags)
-    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False)
+def test_crf_catted_scores(token_sizes, num_tags):
+    actual_decoder = CrfDecoder(num_tags).to(device=device)
+    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False).to(device=device)
+
+    excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
+    excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
+    excepted_decoder.end_transitions.data = torch.randn_like(excepted_decoder.end_transitions)
+
+    actual_decoder.transitions.data = excepted_decoder.transitions[None, None, :, :]
+    actual_decoder.head_transitions.data = excepted_decoder.start_transitions[None, None, :]
+    actual_decoder.last_transitions.data = excepted_decoder.end_transitions[None, None, :]
+
+    emissions = [
+        torch.randn((token_size, num_tags), requires_grad=True, device=device)
+        for token_size in token_sizes
+    ]
+    targets = [
+        torch.randint(0, num_tags, (token_size,), device=device)
+        for token_size in token_sizes
+    ]
+
+    catted_emissions = cat_sequence([x[:, None] for x in emissions])
+    catted_targets = cat_sequence([x[:, None] for x in targets])
+
+    padded_emissions, _ = pad_sequence(emissions, batch_first=False)
+    padded_targets, _ = pad_sequence(targets, batch_first=False)
+
+    size, ptr = pad_catted_indices(token_sizes=catted_emissions.token_sizes, batch_first=False)
+    mask = torch.zeros(size, dtype=torch.bool, device=device)
+    mask[ptr] = True
+
+    actual = actual_decoder.forward(emissions=catted_emissions).log_scores(targets=catted_targets)[:, 0]
+    excepted = excepted_decoder._compute_score(
+        emissions=padded_emissions, tags=padded_targets.long(),
+        mask=mask.byte(),
+    )
+
+    assert_close(actual=actual, expected=excepted, rtol=1e-4, atol=1e-4)
+    assert_grad_close(actual=actual, expected=excepted, inputs=emissions, rtol=1e-4, atol=1e-4)
+
+
+@given(
+    token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
+    num_tags=sizes(TOKEN_SIZE),
+)
+def test_crf_catted_fit(token_sizes, num_tags):
+    actual_decoder = CrfDecoder(num_tags).to(device=device)
+    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False).to(device=device)
 
     excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
     excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
@@ -57,13 +100,12 @@ def test_crf_catted_fit(device, token_sizes, num_tags):
 
 
 @given(
-    device=devices(),
     token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
     num_tags=sizes(TOKEN_SIZE),
 )
-def test_crf_catted_decode(device, token_sizes, num_tags):
-    actual_decoder = CrfDecoder(num_tags)
-    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False)
+def test_crf_catted_decode(token_sizes, num_tags):
+    actual_decoder = CrfDecoder(num_tags).to(device=device)
+    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False).to(device=device)
 
     excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
     excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
@@ -91,18 +133,67 @@ def test_crf_catted_decode(device, token_sizes, num_tags):
     excepted = excepted_decoder.decode(emissions=padded_emissions, mask=mask.byte())
     excepted, excepted_token_sizes = cat_sequence([torch.tensor(x, device=device) for x in excepted])
 
-    assert_equal(actual=actual[:, 0], expected=excepted)
-    assert_equal(actual=actual_token_sizes, expected=excepted_token_sizes)
+    assert_close(actual=actual[:, 0], expected=excepted)
+    assert_close(actual=actual_token_sizes, expected=excepted_token_sizes)
 
 
 @given(
-    device=devices(),
     token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
     num_tags=sizes(TOKEN_SIZE),
 )
-def test_crf_packed_fit(device, token_sizes, num_tags):
-    actual_decoder = CrfDecoder(num_tags)
-    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False)
+def test_crf_packed_scores(token_sizes, num_tags):
+    actual_decoder = CrfDecoder(num_tags).to(device=device)
+    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False).to(device=device)
+
+    excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
+    excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
+    excepted_decoder.end_transitions.data = torch.randn_like(excepted_decoder.end_transitions)
+
+    actual_decoder.transitions.data = excepted_decoder.transitions[None, None, :, :]
+    actual_decoder.head_transitions.data = excepted_decoder.start_transitions[None, None, :]
+    actual_decoder.last_transitions.data = excepted_decoder.end_transitions[None, None, :]
+
+    emissions = [
+        torch.randn((token_size, num_tags), requires_grad=True, device=device)
+        for token_size in token_sizes
+    ]
+    targets = [
+        torch.randint(0, num_tags, (token_size,), device=device)
+        for token_size in token_sizes
+    ]
+
+    packed_emissions = pack_sequence([x[:, None] for x in emissions])
+    packed_targets = pack_sequence([x[:, None] for x in targets])
+
+    padded_emissions, _ = pad_sequence(emissions, batch_first=False)
+    padded_targets, _ = pad_sequence(targets, batch_first=False)
+
+    size, ptr, _ = pad_packed_indices(
+        batch_sizes=packed_emissions.batch_sizes,
+        sorted_indices=packed_emissions.sorted_indices,
+        unsorted_indices=packed_emissions.unsorted_indices,
+        batch_first=False,
+    )
+    mask = torch.zeros(size, dtype=torch.bool, device=device)
+    mask[ptr] = True
+
+    actual = actual_decoder.forward(emissions=packed_emissions).log_scores(targets=packed_targets)[:, 0]
+    excepted = excepted_decoder._compute_score(
+        emissions=padded_emissions, tags=padded_targets.long(),
+        mask=mask.byte(),
+    )
+
+    assert_close(actual=actual, expected=excepted, rtol=1e-4, atol=1e-4)
+    assert_grad_close(actual=actual, expected=excepted, inputs=emissions, rtol=1e-4, atol=1e-4)
+
+
+@given(
+    token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
+    num_tags=sizes(TOKEN_SIZE),
+)
+def test_crf_packed_fit(token_sizes, num_tags):
+    actual_decoder = CrfDecoder(num_tags).to(device=device)
+    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False).to(device=device)
 
     excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
     excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
@@ -147,13 +238,12 @@ def test_crf_packed_fit(device, token_sizes, num_tags):
 
 
 @given(
-    device=devices(),
     token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
     num_tags=sizes(TOKEN_SIZE),
 )
-def test_crf_packed_decode(device, token_sizes, num_tags):
-    actual_decoder = CrfDecoder(num_tags)
-    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False)
+def test_crf_packed_decode(token_sizes, num_tags):
+    actual_decoder = CrfDecoder(num_tags).to(device=device)
+    excepted_decoder = torchcrf.CRF(num_tags, batch_first=False).to(device=device)
 
     excepted_decoder.transitions.data = torch.randn_like(excepted_decoder.transitions)
     excepted_decoder.start_transitions.data = torch.randn_like(excepted_decoder.start_transitions)
@@ -186,21 +276,20 @@ def test_crf_packed_decode(device, token_sizes, num_tags):
     excepted = excepted_decoder.decode(emissions=padded_emissions, mask=mask.byte())
     excepted = pack_sequence([torch.tensor(x, device=device) for x in excepted])
 
-    assert_equal(actual=actual.data[:, 0], expected=excepted.data)
-    assert_equal(actual=actual.batch_sizes, expected=excepted.batch_sizes)
-    assert_equal(actual=actual.sorted_indices, expected=excepted.sorted_indices)
-    assert_equal(actual=actual.unsorted_indices, expected=excepted.unsorted_indices)
+    assert_close(actual=actual.data[:, 0], expected=excepted.data)
+    assert_close(actual=actual.batch_sizes, expected=excepted.batch_sizes)
+    assert_close(actual=actual.sorted_indices, expected=excepted.sorted_indices)
+    assert_close(actual=actual.unsorted_indices, expected=excepted.unsorted_indices)
 
 
 @given(
-    device=devices(),
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE),
     num_conjugates=sizes(NUM_CONJUGATES),
     num_tags=sizes(TINY_TOKEN_SIZE),
 )
-def test_conjugated_catted_fit(device, token_sizes, num_conjugates, num_tags):
-    decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates)
-    decoders = [CrfDecoder(num_tags=num_tags, num_conjugates=1) for _ in range(num_conjugates)]
+def test_conjugated_catted_fit(token_sizes, num_conjugates, num_tags):
+    decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates).to(device=device)
+    decoders = [CrfDecoder(num_tags=num_tags, num_conjugates=1).to(device=device) for _ in range(num_conjugates)]
 
     for index in range(num_conjugates):
         decoders[index].transitions.data = torch.randn_like(decoders[index].transitions)
@@ -243,14 +332,13 @@ def test_conjugated_catted_fit(device, token_sizes, num_conjugates, num_tags):
 
 
 @given(
-    device=devices(),
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE),
     num_conjugates=sizes(NUM_CONJUGATES),
     num_tags=sizes(TINY_TOKEN_SIZE),
 )
-def test_conjugated_packed_fit(device, token_sizes, num_conjugates, num_tags):
-    decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates)
-    decoders = [CrfDecoder(num_tags=num_tags, num_conjugates=1) for _ in range(num_conjugates)]
+def test_conjugated_packed_fit(token_sizes, num_conjugates, num_tags):
+    decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates).to(device=device)
+    decoders = [CrfDecoder(num_tags=num_tags, num_conjugates=1).to(device=device) for _ in range(num_conjugates)]
 
     for index in range(num_conjugates):
         decoders[index].transitions.data = torch.randn_like(decoders[index].transitions)
@@ -293,14 +381,13 @@ def test_conjugated_packed_fit(device, token_sizes, num_conjugates, num_tags):
 
 
 @given(
-    device=devices(),
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE),
     num_conjugates=sizes(NUM_CONJUGATES),
     num_tags=sizes(TINY_TOKEN_SIZE),
 )
-def test_dynamic_fit(device, token_sizes, num_conjugates, num_tags):
-    packed_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates)
-    catted_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates)
+def test_dynamic_fit(token_sizes, num_conjugates, num_tags):
+    packed_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates).to(device=device)
+    catted_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates).to(device=device)
 
     emissions = [
         torch.randn((token_size, 1, num_tags), requires_grad=True, device=device)
@@ -312,9 +399,9 @@ def test_dynamic_fit(device, token_sizes, num_conjugates, num_tags):
         for token_size in token_sizes
     ]
 
-    catted_decoder.transitions.data = torch.randn((sum(token_sizes), num_conjugates, num_tags, num_tags))
-    catted_decoder.head_transitions.data = torch.randn((len(token_sizes), num_conjugates, num_tags))
-    catted_decoder.last_transitions.data = torch.randn((len(token_sizes), num_conjugates, num_tags))
+    catted_decoder.transitions.data = torch.randn((sum(token_sizes), num_conjugates, num_tags, num_tags), device=device)
+    catted_decoder.head_transitions.data = torch.randn((len(token_sizes), num_conjugates, num_tags), device=device)
+    catted_decoder.last_transitions.data = torch.randn((len(token_sizes), num_conjugates, num_tags), device=device)
 
     token_sizes = torch.tensor(token_sizes, device=device)
     indices, _, sorted_indices, _ = pack_catted_indices(token_sizes=token_sizes, device=device)
