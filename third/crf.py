@@ -30,7 +30,7 @@ class CrfDecoder(nn.Module):
 
     @torch.no_grad()
     def reset_parameters_with_(self, decoder) -> None:
-        assert self.num_tags == decoder.num_tags
+        assert self.num_tags == decoder.num_targets
         assert self.num_conjugates == decoder.num_conjugates
 
         for index in range(self.num_conjugates):

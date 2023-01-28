@@ -4,7 +4,7 @@ from tqdm import tqdm
 
 from benchmark.meter import TimeMeter
 from third.crf import CrfDecoder as ThirdPartyCrfDecoder
-from torchlatent.crf import CrfDecoder
+from torchlatent.crf import CrfLayer
 
 
 def benchmark_crf(num_tags: int = 50, num_conjugates: int = 1, num_runs: int = 100,
@@ -19,7 +19,7 @@ def benchmark_crf(num_tags: int = 50, num_conjugates: int = 1, num_runs: int = 1
         device = torch.device('cpu')
     print(f'device => {device}')
 
-    decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates).to(device=device)
+    decoder = CrfLayer(num_targets=num_tags, num_conjugates=num_conjugates).to(device=device)
     print(f'decoder => {decoder}')
 
     third_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates).to(device=device)

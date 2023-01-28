@@ -214,30 +214,24 @@ class CrfDistribution(DistributionABC):
         )
 
 
-class CrfDecoderABC(nn.Module):
+class CrfLayerABC(nn.Module):
     def reset_parameters(self) -> None:
         raise NotImplementedError
-
-    def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.extra_repr()})'
-
-    def extra_repr(self) -> str:
-        return ''
 
     def forward_parameters(self, emissions: Sequence):
         raise NotImplementedError
 
 
-class CrfDecoder(CrfDecoderABC):
-    def __init__(self, num_tags: int, num_conjugates: int = 1) -> None:
-        super(CrfDecoder, self).__init__()
+class CrfLayer(CrfLayerABC):
+    def __init__(self, num_targets: int, num_conjugates: int = 1) -> None:
+        super(CrfLayer, self).__init__()
 
-        self.num_tags = num_tags
+        self.num_targets = num_targets
         self.num_conjugates = num_conjugates
 
-        self.transitions = nn.Parameter(torch.empty((1, num_conjugates, num_tags, num_tags)))
-        self.head_transitions = nn.Parameter(torch.empty((1, num_conjugates, num_tags)))
-        self.last_transitions = nn.Parameter(torch.empty((1, num_conjugates, num_tags)))
+        self.transitions = nn.Parameter(torch.empty((1, num_conjugates, num_targets, num_targets)))
+        self.head_transitions = nn.Parameter(torch.empty((1, num_conjugates, num_targets)))
+        self.last_transitions = nn.Parameter(torch.empty((1, num_conjugates, num_targets)))
 
         self.reset_parameters()
 
@@ -248,7 +242,7 @@ class CrfDecoder(CrfDecoderABC):
 
     def extra_repr(self) -> str:
         return ', '.join([
-            f'num_tags={self.num_tags}',
+            f'num_targets={self.num_targets}',
             f'num_conjugates={self.num_conjugates}',
         ])
 
@@ -272,9 +266,9 @@ class CrfDecoder(CrfDecoderABC):
         return CrfDistribution(emissions=emissions, transitions=transitions, indices=indices)
 
     def fit(self, emissions: Sequence, targets: Sequence, indices: CrfIndices = None) -> Tensor:
-        dist = self.forward(emissions=emissions, indices=indices)
-        return dist.log_prob(targets=targets).neg()
+        dist: CrfDistribution = self.forward(emissions=emissions, indices=indices)
+        return dist.log_partitions - dist.log_scores(targets=targets)
 
     def decode(self, emissions: Sequence, indices: CrfIndices = None) -> Sequence:
-        dist = self.forward(emissions=emissions, indices=indices)
+        dist: CrfDistribution = self.forward(emissions=emissions, indices=indices)
         return emissions._replace(data=dist.argmax)

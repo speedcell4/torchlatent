@@ -26,23 +26,23 @@ Third       (0.232487) =>          0.103277 0.129209 0.145311
 import torch
 from torchrua import pack_sequence
 
-from torchlatent.crf import CrfDecoder
+from torchlatent.crf import CrfLayer
 
 num_tags = 3
 num_conjugates = 1
 
-decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugates)
+decoder = CrfLayer(num_targets=num_tags, num_conjugates=num_conjugates)
 
 emissions = pack_sequence([
-    torch.randn((5, num_conjugates, num_tags), requires_grad=True),
-    torch.randn((2, num_conjugates, num_tags), requires_grad=True),
-    torch.randn((3, num_conjugates, num_tags), requires_grad=True),
+  torch.randn((5, num_conjugates, num_tags), requires_grad=True),
+  torch.randn((2, num_conjugates, num_tags), requires_grad=True),
+  torch.randn((3, num_conjugates, num_tags), requires_grad=True),
 ])
 
 tags = pack_sequence([
-    torch.randint(0, num_tags, (5, num_conjugates)),
-    torch.randint(0, num_tags, (2, num_conjugates)),
-    torch.randint(0, num_tags, (3, num_conjugates)),
+  torch.randint(0, num_tags, (5, num_conjugates)),
+  torch.randint(0, num_tags, (2, num_conjugates)),
+  torch.randint(0, num_tags, (3, num_conjugates)),
 ])
 
 print(decoder.fit(emissions=emissions, tags=tags))
