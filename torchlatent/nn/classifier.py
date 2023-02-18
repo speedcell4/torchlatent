@@ -13,8 +13,16 @@ class Classifier(nn.Module):
         self.out_features = out_features
         self.num_conjugates = num_conjugates
 
-        self.weight = nn.Parameter(torch.zeros((num_conjugates, out_features, in_features)))
-        self.bias = nn.Parameter(torch.zeros((num_conjugates, out_features,))) if bias else 0
+        self.weight = nn.Parameter(torch.empty((num_conjugates, out_features, in_features)))
+        self.bias = nn.Parameter(torch.empty((num_conjugates, out_features,))) if bias else 0
+
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        init.zeros_(self.weight)
+
+        if torch.is_tensor(self.bias):
+            init.zeros_(self.bias)
 
     def extra_repr(self) -> str:
         return ', '.join([
@@ -25,7 +33,7 @@ class Classifier(nn.Module):
         ])
 
     def forward(self, tensor: Tensor) -> Tensor:
-        return torch.einsum('cox,...cx->...co', self.weight, tensor) + self.bias
+        return torch.einsum('nzx,...nx->...nz', self.weight, tensor) + self.bias
 
 
 class BiaffineClassifier(nn.Module):
@@ -38,10 +46,20 @@ class BiaffineClassifier(nn.Module):
         self.out_features = out_features
         self.num_conjugates = num_conjugates
 
-        self.weight0 = nn.Parameter(torch.zeros((num_conjugates, out_features, in_features1, in_features2)))
-        self.weight1 = nn.Parameter(torch.zeros((num_conjugates, out_features, in_features1)))
-        self.weight2 = nn.Parameter(torch.zeros((num_conjugates, out_features, in_features2)))
-        self.bias = nn.Parameter(torch.zeros((num_conjugates, out_features))) if bias else 0
+        self.weight0 = nn.Parameter(torch.empty((num_conjugates, out_features, in_features1, in_features2)))
+        self.weight1 = nn.Parameter(torch.empty((num_conjugates, out_features, in_features1)))
+        self.weight2 = nn.Parameter(torch.empty((num_conjugates, out_features, in_features2)))
+        self.bias = nn.Parameter(torch.empty((num_conjugates, out_features))) if bias else 0
+
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        init.zeros_(self.weight0)
+        init.zeros_(self.weight1)
+        init.zeros_(self.weight2)
+
+        if torch.is_tensor(self.bias):
+            init.zeros_(self.bias)
 
     def extra_repr(self) -> str:
         return ', '.join([
@@ -53,8 +71,8 @@ class BiaffineClassifier(nn.Module):
         ])
 
     def forward(self, tensor1: Tensor, tensor2: Tensor) -> Tensor:
-        tensor0 = torch.einsum('coxy,...cx,...cy->...co', self.weight0, tensor1, tensor2)
-        tensor1 = torch.einsum('cox,...cx->...co', self.weight1, tensor1)
-        tensor2 = torch.einsum('coy,...cy->...co', self.weight2, tensor2)
+        tensor0 = torch.einsum('nzxy,...nx,...ny->...nz', self.weight0, tensor1, tensor2)
+        tensor1 = torch.einsum('nzx,...nx->...nz', self.weight1, tensor1)
+        tensor2 = torch.einsum('nzy,...ny->...nz', self.weight2, tensor2)
 
         return tensor0 + tensor1 + tensor2 + self.bias
