@@ -1,16 +1,15 @@
 from abc import ABCMeta
+from typing import Union
 
 import torch
 import torch.autograd
 from torch import Tensor
 from torch.distributions import Distribution
 from torch.distributions.utils import lazy_property
+from torch.nn.utils.rnn import PackedSequence
+from torchrua import CattedSequence
 
-from torchlatent.types import Sequence
-
-__all__ = [
-    'DistributionABC',
-]
+Sequence = Union[CattedSequence, PackedSequence]
 
 
 class DistributionABC(Distribution, metaclass=ABCMeta):

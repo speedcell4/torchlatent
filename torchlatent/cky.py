@@ -1,6 +1,6 @@
 from abc import ABCMeta
 from functools import singledispatch
-from typing import Tuple, NamedTuple
+from typing import Tuple, NamedTuple, Union
 from typing import Type
 
 import torch
@@ -9,14 +9,15 @@ from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
+from torchrua import CattedSequence, transpose_sizes, pack_catted_sequence, cat_packed_indices, RuaSequential
+from torchrua import major_sizes_to_ptr, accumulate_sizes
+from torchrua import pad_packed_sequence, pad_catted_sequence
 
 from torchlatent.abc import DistributionABC
 from torchlatent.nn.classifier import BiaffineClassifier
 from torchlatent.semiring import Semiring, Log, Max
-from torchlatent.types import Sequence
-from torchrua import CattedSequence, transpose_sizes, pack_catted_sequence, cat_packed_indices, RuaSequential
-from torchrua import major_sizes_to_ptr, accumulate_sizes
-from torchrua import pad_packed_sequence, pad_catted_sequence
+
+Sequence = Union[CattedSequence, PackedSequence]
 
 
 @singledispatch
