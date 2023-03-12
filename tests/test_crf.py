@@ -40,7 +40,7 @@ def test_crf_catted_scores(token_sizes, num_tags):
     padded_emissions, _ = pad_sequence(emissions, batch_first=False)
     padded_targets, _ = pad_sequence(targets, batch_first=False)
 
-    size, ptr = pad_catted_indices(token_sizes=catted_emissions.token_sizes, batch_first=False)
+    size, ptr, _ = pad_catted_indices(token_sizes=catted_emissions.token_sizes, batch_first=False)
     mask = torch.zeros(size, dtype=torch.bool, device=device)
     mask[ptr] = True
 
@@ -85,7 +85,7 @@ def test_crf_catted_fit(token_sizes, num_tags):
     padded_emissions, _ = pad_sequence(emissions, batch_first=False)
     padded_targets, _ = pad_sequence(targets, batch_first=False)
 
-    size, ptr = pad_catted_indices(token_sizes=catted_emissions.token_sizes, batch_first=False)
+    size, ptr, _ = pad_catted_indices(token_sizes=catted_emissions.token_sizes, batch_first=False)
     mask = torch.zeros(size, dtype=torch.bool, device=device)
     mask[ptr] = True
 
@@ -124,7 +124,7 @@ def test_crf_catted_decode(token_sizes, num_tags):
 
     padded_emissions, _ = pad_sequence(emissions, batch_first=False)
 
-    size, ptr = pad_catted_indices(token_sizes=catted_emissions.token_sizes, batch_first=False)
+    size, ptr, _ = pad_catted_indices(token_sizes=catted_emissions.token_sizes, batch_first=False)
     mask = torch.zeros(size, dtype=torch.bool, device=device)
     mask[ptr] = True
 

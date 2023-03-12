@@ -12,8 +12,7 @@ from torch.nn import init
 from torch.types import Device
 from torchrua import CattedSequence, PackedSequence, RuaSequential
 from torchrua import ReductionIndices, accumulate_sizes, minor_sizes_to_ptr
-from torchrua import reduce_catted_indices
-from torchrua import reduce_packed_indices
+from torchrua import reduce_catted_indices, reduce_packed_indices
 
 from torchlatent.abc import DistributionABC
 from torchlatent.nn.classifier import Classifier
@@ -96,7 +95,7 @@ def crf_scores_packed_indices(sequence: PackedSequence, device: Device = None):
     acc_batch_sizes = F.pad(batch_sizes.cumsum(dim=0), [2, -1])
 
     batch_ptr, token_ptr, token_sizes = minor_sizes_to_ptr(
-        token_sizes=batch_sizes, token_ptr=unsorted_indices,
+        sizes=batch_sizes, minor_ptr=unsorted_indices,
     )
     prev = acc_batch_sizes[token_ptr + 0] + batch_ptr
     curr = acc_batch_sizes[token_ptr + 1] + batch_ptr
