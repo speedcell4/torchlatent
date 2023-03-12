@@ -1,8 +1,9 @@
 import torch
 from torch import Tensor
-from torchrua.reduction import reduce_sequence, ReductionIndices
 
 from torchlatent.functional import logsumexp, logaddexp
+from torchrua import segment_sum, segment_prod, segment_max, segment_logsumexp
+from torchrua.reduction import reduce_sequence, ReductionIndices
 
 __all__ = [
     'Semiring', 'ExceptionSemiring',
@@ -79,11 +80,11 @@ class Std(Semiring):
 
     @classmethod
     def segment_sum(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
-        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
+        return segment_sum(tensor, segment_sizes=sizes)
 
     @classmethod
     def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
-        raise NotImplementedError
+        return segment_prod(tensor, segment_sizes=sizes)
 
 
 class Log(Semiring):
@@ -108,13 +109,11 @@ class Log(Semiring):
 
     @classmethod
     def segment_sum(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
-        m = torch.segment_reduce(tensor, reduce='max', lengths=sizes, unsafe=True).detach()
-        z = (tensor - torch.repeat_interleave(m, repeats=sizes)).exp()
-        return torch.segment_reduce(z, reduce='sum', lengths=sizes, unsafe=True).log() + m
+        return segment_logsumexp(tensor, segment_sizes=sizes)
 
     @classmethod
     def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
-        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
+        return segment_sum(tensor, segment_sizes=sizes)
 
 
 class Max(Semiring):
@@ -139,11 +138,11 @@ class Max(Semiring):
 
     @classmethod
     def segment_sum(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
-        return torch.segment_reduce(tensor, reduce='max', lengths=sizes, unsafe=True)
+        return segment_max(tensor, segment_sizes=sizes)
 
     @classmethod
     def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
-        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
+        return segment_sum(tensor, segment_sizes=sizes)
 
 
 class ExceptionSemiring(Semiring):
@@ -178,11 +177,11 @@ class Xen(ExceptionSemiring):
 
     @classmethod
     def segment_sum(cls, tensor: Tensor, log_p: Tensor, log_q: Tensor, sizes: Tensor) -> Tensor:
-        return torch.segment_reduce((tensor - log_q) * log_p.exp(), reduce='sum', lengths=sizes, unsafe=True)
+        return segment_sum((tensor - log_q) * log_p.exp(), segment_sizes=sizes)
 
     @classmethod
     def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
-        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
+        return segment_sum(tensor, segment_sizes=sizes)
 
 
 class Div(ExceptionSemiring):
@@ -207,8 +206,8 @@ class Div(ExceptionSemiring):
 
     @classmethod
     def segment_sum(cls, tensor: Tensor, log_p: Tensor, log_q: Tensor, sizes: Tensor) -> Tensor:
-        return torch.segment_reduce((tensor - log_q + log_p) * log_p.exp(), reduce='sum', lengths=sizes, unsafe=True)
+        return segment_sum((tensor - log_q + log_p) * log_p.exp(), segment_sizes=sizes)
 
     @classmethod
     def segment_prod(cls, tensor: Tensor, sizes: Tensor) -> Tensor:
-        return torch.segment_reduce(tensor, reduce='sum', lengths=sizes, unsafe=True)
+        return segment_sum(tensor, segment_sizes=sizes)
