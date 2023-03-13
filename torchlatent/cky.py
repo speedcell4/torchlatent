@@ -117,9 +117,9 @@ class CkyDistribution(DistributionABC):
         self.emissions = emissions
         self.indices = indices
 
-    def log_scores(self, sequence: Sequence) -> Tensor:
-        indices, batch_ptr, sizes = cky_scores_indices(sequence)
-        data = sequence.data[indices]
+    def log_scores(self, targets: Sequence) -> Tensor:
+        indices, batch_ptr, sizes = cky_scores_indices(targets)
+        data = targets.data[indices]
         return Log.segment_prod(
             tensor=self.emissions[batch_ptr, data[..., 0], data[..., 1], data[..., 2]],
             sizes=sizes,
@@ -176,7 +176,7 @@ class CkyLayerABC(nn.Module, metaclass=ABCMeta):
 
     def fit(self, emissions: Sequence, targets: Sequence, indices: CkyIndices = None) -> Tensor:
         dist = self.forward(emissions=emissions, indices=indices)
-        return dist.log_partitions - dist.log_scores(sequence=targets)
+        return dist.log_partitions - dist.log_scores(targets=targets)
 
     def decode(self, emissions: Sequence, indices: CkyIndices = None) -> Sequence:
         dist = self.forward(emissions=emissions, indices=indices)

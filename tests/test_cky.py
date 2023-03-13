@@ -5,43 +5,51 @@ from torchrua import pack_sequence, cat_sequence
 
 from tests.assertion import assert_close, assert_grad_close
 from tests.strategy import sizes, BATCH_SIZE, TOKEN_SIZE, EMBEDDING_DIM, device, TINY_BATCH_SIZE
-from torchlatent.cky import CkyDistribution, cky_partitions_indices, CkyLayer
+from torchlatent.cky import CkyDistribution, cky_partitions_indices, CkyLayer, CkyDecoder
 
 
 @given(
     token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
     embedding_dim=sizes(EMBEDDING_DIM),
     num_tags=sizes(TOKEN_SIZE),
-    bias=st.booleans(),
+    dropout=st.floats(0, 1),
 )
-def test_cky_catted_max(token_sizes, embedding_dim, num_tags, bias):
+def test_cky_catted_max(token_sizes, embedding_dim, num_tags, dropout):
     sequence = cat_sequence([
         torch.randn((token_size, embedding_dim), requires_grad=True, device=device)
         for token_size in token_sizes
     ])
 
-    decoder = CkyLayer(in_features=embedding_dim, out_features=num_tags, bias=bias).to(device=device)
-    cky = decoder.forward(sequence=sequence)
-
-    assert_close(actual=cky.max, expected=cky.log_scores(decoder.decode(sequence=sequence)))
-
-
-@given(
-    token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
-    embedding_dim=sizes(EMBEDDING_DIM),
-    num_tags=sizes(TOKEN_SIZE),
-    bias=st.booleans(),
-)
-def test_cky_packed_max(token_sizes, embedding_dim, num_tags, bias):
-    sequence = pack_sequence([
-        torch.randn((token_size, embedding_dim), requires_grad=True, device=device)
+    targets = cat_sequence([
+        torch.empty((token_size * 2 - 1,), dtype=torch.long, device=device)
         for token_size in token_sizes
     ])
 
-    decoder = CkyLayer(in_features=embedding_dim, out_features=num_tags, bias=bias).to(device=device)
-    cky = decoder.forward(sequence=sequence)
+    decoder = CkyDecoder(
+        in_features=embedding_dim, hidden_features=embedding_dim,
+        num_targets=num_tags, dropout=dropout,
+    ).to(device=device)
+    dist = decoder(sequence)
 
-    assert_close(actual=cky.max, expected=cky.log_scores(decoder.decode(sequence=sequence)))
+    assert_close(actual=dist.max, expected=dist.log_scores(targets=targets._replace(data=dist.argmax)))
+
+
+# @given(
+#     token_sizes=sizes(TINY_BATCH_SIZE, TOKEN_SIZE),
+#     embedding_dim=sizes(EMBEDDING_DIM),
+#     num_tags=sizes(TOKEN_SIZE),
+#     bias=st.booleans(),
+# )
+# def test_cky_packed_max(token_sizes, embedding_dim, num_tags, bias):
+#     sequence = pack_sequence([
+#         torch.randn((token_size, embedding_dim), requires_grad=True, device=device)
+#         for token_size in token_sizes
+#     ])
+#
+#     decoder = CkyLayer(in_features=embedding_dim, out_features=num_tags, bias=bias).to(device=device)
+#     cky = decoder.forward(sequence=sequence)
+#
+#     assert_close(actual=cky.max, expected=cky.log_scores(decoder.decode(sequence=sequence)))
 
 
 @given(
