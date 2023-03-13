@@ -5,7 +5,7 @@ from torchrua import pack_sequence, cat_sequence
 
 from tests.assertion import assert_close, assert_grad_close
 from tests.strategy import sizes, BATCH_SIZE, TOKEN_SIZE, EMBEDDING_DIM, device, TINY_BATCH_SIZE
-from torchlatent.cky import CkyDistribution, cky_partition_indices, CkyLayer
+from torchlatent.cky import CkyDistribution, cky_partitions_indices, CkyLayer
 
 
 @given(
@@ -56,7 +56,7 @@ def test_cky_log_partitions(token_sizes, num_tags):
     token_sizes = torch.tensor(token_sizes, device=device)
 
     excepted = TreeCRF(log_potentials=scores, lengths=token_sizes)
-    actual = CkyDistribution(emissions=scores, indices=cky_partition_indices(token_sizes=token_sizes, device=device))
+    actual = CkyDistribution(emissions=scores, indices=cky_partitions_indices(token_sizes=token_sizes, device=device))
 
     assert_close(actual=actual.log_partitions, expected=excepted.partition)
     assert_grad_close(actual=actual.log_partitions, expected=excepted.partition, inputs=scores, rtol=1e-5, atol=1e-5)

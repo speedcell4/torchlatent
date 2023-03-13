@@ -9,13 +9,13 @@ from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
-from torchrua import CattedSequence, transpose_sizes, pack_catted_sequence, cat_packed_indices, RuaSequential
-from torchrua import major_sizes_to_ptr, accumulate_sizes
-from torchrua import pad_packed_sequence, pad_catted_sequence
 
 from torchlatent.abc import DistributionABC
 from torchlatent.nn.classifier import BiaffineClassifier
 from torchlatent.semiring import Semiring, Log, Max
+from torchrua import CattedSequence, transpose_sizes, pack_catted_sequence, cat_packed_indices, RuaSequential
+from torchrua import major_sizes_to_ptr, accumulate_sizes
+from torchrua import pad_packed_sequence, pad_catted_sequence
 
 Sequence = Union[CattedSequence, PackedSequence]
 
@@ -63,7 +63,7 @@ class CkyIndices(NamedTuple):
 
 
 @torch.no_grad()
-def cky_partition_indices(token_sizes: Tensor, device: Device = None):
+def cky_partitions_indices(token_sizes: Tensor, device: Device = None):
     if device is None:
         device = token_sizes.device
 
@@ -85,13 +85,13 @@ def cky_partition_indices(token_sizes: Tensor, device: Device = None):
     )
 
 
-def cky_partition(data: Tensor, indices: CkyIndices, *, semiring: Type[Semiring]) -> Tensor:
+def cky_partitions(data: Tensor, indices: CkyIndices, *, semiring: Type[Semiring]) -> Tensor:
     token_size, cache_size, (src1, src2), tgt = indices
 
     size = (token_size, cache_size, *data.size()[3:])
-    tensor0 = torch.full(size, fill_value=semiring.zero, requires_grad=False)
-    tensor1 = torch.full(size, fill_value=semiring.zero, requires_grad=False)
-    tensor2 = torch.full(size, fill_value=semiring.zero, requires_grad=False)
+    tensor0 = torch.full(size, fill_value=semiring.zero, device=data.device, requires_grad=False)
+    tensor1 = torch.full(size, fill_value=semiring.zero, device=data.device, requires_grad=False)
+    tensor2 = torch.full(size, fill_value=semiring.zero, device=data.device, requires_grad=False)
 
     tensor0[src1] = data[src2]
     tensor1[0, :] = tensor2[-1, :] = tensor0[0, :]
@@ -122,11 +122,11 @@ class CkyDistribution(DistributionABC):
 
     @lazy_property
     def log_partitions(self) -> Tensor:
-        return cky_partition(data=Log.sum(self.emissions, dim=-1), indices=self.indices, semiring=Log)
+        return cky_partitions(data=Log.sum(self.emissions, dim=-1), indices=self.indices, semiring=Log)
 
     @lazy_property
     def max(self) -> Tensor:
-        return cky_partition(data=Max.sum(self.emissions, dim=-1), indices=self.indices, semiring=Max)
+        return cky_partitions(data=Max.sum(self.emissions, dim=-1), indices=self.indices, semiring=Max)
 
     @lazy_property
     def argmax(self) -> Tensor:
@@ -172,7 +172,7 @@ class CkyLayerABC(nn.Module, metaclass=ABCMeta):
             raise KeyError(f'type {type(sequence)} is not supported')
 
         if indices is None:
-            indices = cky_partition_indices(token_sizes=token_sizes, device=features.device)
+            indices = cky_partitions_indices(token_sizes=token_sizes, device=features.device)
 
         return CkyDistribution(
             emissions=self.forward_scores(features=features),

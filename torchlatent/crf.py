@@ -147,8 +147,8 @@ def crf_indices(emissions: Sequence) -> CrfIndices:
     )
 
 
-def crf_partition(emissions: Tensor, transitions: Tuple[Tensor, Tensor, Tensor],
-                  indices: CrfIndices, semiring: Type[Semiring]):
+def crf_partitions(emissions: Tensor, transitions: Tuple[Tensor, Tensor, Tensor],
+                   indices: CrfIndices, semiring: Type[Semiring]):
     head, _, _, _, _, unsorted_indices, indices = indices
 
     transitions, head_transitions, last_transitions = transitions
@@ -185,7 +185,7 @@ class CrfDistribution(DistributionABC):
 
     @lazy_property
     def log_partitions(self) -> Tensor:
-        return crf_partition(
+        return crf_partitions(
             emissions=self.emissions,
             transitions=self.transitions,
             indices=self.indices,
@@ -194,7 +194,7 @@ class CrfDistribution(DistributionABC):
 
     @lazy_property
     def max(self) -> Tensor:
-        return crf_partition(
+        return crf_partitions(
             emissions=self.emissions,
             transitions=self.transitions,
             indices=self.indices,
