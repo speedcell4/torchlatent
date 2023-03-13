@@ -13,9 +13,9 @@ from torch.types import Device
 from torchlatent.abc import DistributionABC
 from torchlatent.nn.classifier import BiaffineClassifier
 from torchlatent.semiring import Semiring, Log, Max
-from torchrua import CattedSequence, transpose_sizes, pack_catted_sequence, cat_packed_indices, RuaSequential
+from torchrua import CattedSequence, pack_catted_sequence, cat_packed_indices, RuaSequential
 from torchrua import major_sizes_to_ptr, accumulate_sizes
-from torchrua import pad_packed_sequence, pad_catted_sequence
+from torchrua import pad_sequence, pad_indices
 
 Sequence = Union[CattedSequence, PackedSequence]
 
@@ -93,6 +93,11 @@ def cky_partitions(data: Tensor, indices: CkyIndices, *, semiring: Type[Semiring
     tensor1 = torch.full(size, fill_value=semiring.zero, device=data.device, requires_grad=False)
     tensor2 = torch.full(size, fill_value=semiring.zero, device=data.device, requires_grad=False)
 
+    print(f'src1 => {src1}')
+    print(f'src2 => {src2}')
+    print(f'tensor0.size() => {tensor0.size()}')
+    print(f'tensor1.size() => {tensor1.size()}')
+
     tensor0[src1] = data[src2]
     tensor1[0, :] = tensor2[-1, :] = tensor0[0, :]
 
@@ -161,65 +166,52 @@ class CkyLayerABC(nn.Module, metaclass=ABCMeta):
     def forward_scores(self, features: Tensor, *args, **kwargs) -> Tensor:
         raise NotImplementedError
 
-    def forward(self, sequence: Sequence, indices: CkyIndices = None) -> CkyDistribution:
-        if isinstance(sequence, CattedSequence):
-            features, token_sizes = pad_catted_sequence(sequence, batch_first=True)
-        elif isinstance(sequence, PackedSequence):
-            features, token_sizes = pad_packed_sequence(sequence, batch_first=True)
-        elif isinstance(sequence, tuple) and torch.tensor(sequence[0]) and torch.is_tensor(sequence[1]):
-            features, token_sizes = sequence
-        else:
-            raise KeyError(f'type {type(sequence)} is not supported')
+    def forward(self, emissions: Sequence, indices: CkyIndices = None) -> CkyDistribution:
+        _, _, token_sizes = pad_indices(emissions, batch_first=True)
 
         if indices is None:
-            indices = cky_partitions_indices(token_sizes=token_sizes, device=features.device)
+            indices = cky_partitions_indices(token_sizes=token_sizes, device=emissions.data.device)
 
-        return CkyDistribution(
-            emissions=self.forward_scores(features=features),
-            indices=indices,
-        )
+        return CkyDistribution(emissions=emissions.data, indices=indices)
 
-    def fit(self, sequence: Sequence, targets: Sequence, indices: CkyIndices = None) -> Tensor:
-        dist = self.forward(sequence=sequence, indices=indices)
+    def fit(self, emissions: Sequence, targets: Sequence, indices: CkyIndices = None) -> Tensor:
+        dist = self.forward(emissions=emissions, indices=indices)
         return dist.log_partitions - dist.log_scores(sequence=targets)
 
-    def decode(self, sequence: Sequence, indices: CkyIndices = None) -> Sequence:
-        dist = self.forward(sequence=sequence, indices=indices)
+    def decode(self, emissions: Sequence, indices: CkyIndices = None) -> Sequence:
+        dist = self.forward(emissions=emissions, indices=indices)
+        _, _, token_sizes = pad_indices(emissions, batch_first=True)
 
-        if isinstance(sequence, CattedSequence):
-            return CattedSequence(data=dist.argmax, token_sizes=sequence.token_sizes * 2 - 1)
+        if isinstance(emissions, CattedSequence):
+            sequence = CattedSequence(data=dist.argmax, token_sizes=token_sizes * 2 - 1)
+            return sequence
 
-        if isinstance(sequence, PackedSequence):
-            token_sizes = transpose_sizes(sizes=sequence.batch_sizes)
-            token_sizes = token_sizes[sequence.unsorted_indices] * 2 - 1
-            return pack_catted_sequence(CattedSequence(data=dist.argmax, token_sizes=token_sizes))
+        if isinstance(emissions, PackedSequence):
+            sequence = CattedSequence(data=dist.argmax, token_sizes=token_sizes * 2 - 1)
+            return pack_catted_sequence(sequence)
 
-        raise KeyError(f'type {type(sequence)} is not supported')
+        raise KeyError(f'type {type(emissions)} is not supported')
 
 
 class CkyLayer(CkyLayerABC):
-    def __init__(self, num_targets: int, num_conjugates: int) -> None:
+    def __init__(self, num_targets: int) -> None:
         super(CkyLayer, self).__init__()
 
         self.num_targets = num_targets
-        self.num_conjugates = num_conjugates
 
     def extra_repr(self) -> str:
         return ', '.join([
             f'num_targets={self.num_targets}',
-            f'num_conjugates={self.num_conjugates}',
         ])
 
 
 class CkyDecoder(nn.Module):
-    def __init__(self, in_features: int, hidden_features: int,
-                 num_targets: int, num_conjugates: int, dropout: float) -> None:
+    def __init__(self, in_features: int, hidden_features: int, num_targets: int, dropout: float) -> None:
         super(CkyDecoder, self).__init__()
 
         self.in_features = in_features
         self.hidden_features = hidden_features
         self.num_targets = num_targets
-        self.num_conjugates = num_conjugates
 
         self.ffn1 = RuaSequential(
             nn.Linear(in_features, hidden_features, bias=True),
@@ -232,21 +224,19 @@ class CkyDecoder(nn.Module):
             nn.Dropout(dropout),
         )
         self.classifier = BiaffineClassifier(
-            num_conjugates=num_conjugates,
             in_features1=hidden_features,
             in_features2=hidden_features,
             out_features=num_targets,
             bias=False,
         )
 
-        self.cky = CkyLayer(
-            num_targets=num_targets,
-            num_conjugates=num_conjugates,
-        )
+        self.cky = CkyLayer(num_targets=num_targets)
 
     def forward(self, sequence: Sequence) -> CkyDistribution:
-        features1, _ = self.ffn1(sequence)
-        features2, _ = self.ffn2(sequence)
+        features, _ = pad_sequence(sequence, batch_first=True)
+
+        features1 = self.ffn1(features)[:, :, None, :]
+        features2 = self.ffn2(features)[:, None, :, :]
 
         emissions = self.classifier(features1, features2)
-        return self.cky(emissions)
+        return self.cky(sequence._replace(data=emissions))
