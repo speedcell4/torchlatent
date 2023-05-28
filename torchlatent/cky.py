@@ -1,21 +1,18 @@
 from abc import ABCMeta
 from functools import singledispatch
-from typing import Tuple, NamedTuple, Union
-from typing import Type
+from typing import NamedTuple, Tuple, Type, Union
 
 import torch
-from torch import Tensor
-from torch import nn
+from torch import nn, Tensor
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
 
 from torchlatent.abc import DistributionABC
 from torchlatent.nn.classifier import BiaffineClassifier
-from torchlatent.semiring import Semiring, Log, Max
-from torchrua import CattedSequence, pack_catted_sequence, cat_packed_indices, RuaSequential
-from torchrua import major_sizes_to_ptr, accumulate_sizes
-from torchrua import pad_sequence, pad_indices
+from torchlatent.semiring import Log, Max, Semiring
+from torchrua import accumulate_sizes, cat_packed_indices, CattedSequence, major_sizes_to_ptr, pack_catted_sequence, \
+    pad_indices, pad_sequence, RuaSequential
 
 Sequence = Union[CattedSequence, PackedSequence]
 
@@ -92,11 +89,6 @@ def cky_partitions(data: Tensor, indices: CkyIndices, *, semiring: Type[Semiring
     tensor0 = torch.full(size, fill_value=semiring.zero, device=data.device, requires_grad=False)
     tensor1 = torch.full(size, fill_value=semiring.zero, device=data.device, requires_grad=False)
     tensor2 = torch.full(size, fill_value=semiring.zero, device=data.device, requires_grad=False)
-
-    print(f'src1 => {src1}')
-    print(f'src2 => {src2}')
-    print(f'tensor0.size() => {tensor0.size()}')
-    print(f'tensor1.size() => {tensor1.size()}')
 
     tensor0[src1] = data[src2]
     tensor1[0, :] = tensor2[-1, :] = tensor0[0, :]

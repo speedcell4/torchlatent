@@ -2,7 +2,7 @@ import torch
 from hypothesis import given, strategies as st
 
 from tests.assertion import assert_close, assert_grad_close
-from tests.strategy import device, sizes, TINY_TOKEN_SIZE, TINY_BATCH_SIZE
+from tests.strategy import device, sizes, TINY_BATCH_SIZE, TINY_TOKEN_SIZE
 from torchlatent.functional import logaddexp, logsumexp
 
 

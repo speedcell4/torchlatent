@@ -1,9 +1,10 @@
 import torch
 import torchcrf
-from torch import Tensor, nn
+from torch import nn, Tensor
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
-from torchrua import pad_catted_indices, pad_packed_sequence, pack_sequence
+
+from torchrua import pack_sequence, pad_catted_indices, pad_packed_sequence
 
 
 @torch.no_grad()

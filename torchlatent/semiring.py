@@ -1,8 +1,8 @@
 import torch
 from torch import Tensor
 
-from torchlatent.functional import logsumexp, logaddexp
-from torchrua import segment_sum, segment_prod, segment_max, segment_logsumexp
+from torchlatent.functional import logaddexp, logsumexp
+from torchrua import segment_logsumexp, segment_max, segment_prod, segment_sum
 from torchrua.reduction import reduce_sequence, ReductionIndices
 
 __all__ = [
