@@ -7,7 +7,7 @@
 ## Requirements
 
 - Python 3.8
-- PyTorch 1.10.2
+- PyTorch 2.0
 
 ## Installation
 
@@ -34,15 +34,15 @@ num_conjugates = 1
 decoder = CrfLayer(num_targets=num_tags, num_conjugates=num_conjugates)
 
 emissions = pack_sequence([
-  torch.randn((5, num_conjugates, num_tags), requires_grad=True),
-  torch.randn((2, num_conjugates, num_tags), requires_grad=True),
-  torch.randn((3, num_conjugates, num_tags), requires_grad=True),
+    torch.randn((5, num_conjugates, num_tags), requires_grad=True),
+    torch.randn((2, num_conjugates, num_tags), requires_grad=True),
+    torch.randn((3, num_conjugates, num_tags), requires_grad=True),
 ])
 
 tags = pack_sequence([
-  torch.randint(0, num_tags, (5, num_conjugates)),
-  torch.randint(0, num_tags, (2, num_conjugates)),
-  torch.randint(0, num_tags, (3, num_conjugates)),
+    torch.randint(0, num_tags, (5, num_conjugates)),
+    torch.randint(0, num_tags, (2, num_conjugates)),
+    torch.randint(0, num_tags, (3, num_conjugates)),
 ])
 
 print(decoder.fit(emissions=emissions, tags=tags))

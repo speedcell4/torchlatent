@@ -1,12 +1,22 @@
 import torch
 import torchcrf
 from hypothesis import given
+from torchrua import cat_sequence
+from torchrua import pack_catted_indices
+from torchrua import pack_sequence
+from torchrua import pad_catted_indices
+from torchrua import pad_packed_indices
+from torchrua import pad_sequence
 
-from tests.assertion import assert_close, assert_grad_close
-from tests.strategy import device, NUM_CONJUGATES, sizes, TINY_BATCH_SIZE, TINY_TOKEN_SIZE, TOKEN_SIZE
+from tests.assertion import assert_close
+from tests.assertion import assert_grad_close
+from tests.strategy import device
+from tests.strategy import NUM_CONJUGATES
+from tests.strategy import sizes
+from tests.strategy import TINY_BATCH_SIZE
+from tests.strategy import TINY_TOKEN_SIZE
+from tests.strategy import TOKEN_SIZE
 from torchlatent.crf import CrfLayer
-from torchrua import cat_sequence, pack_catted_indices, pack_sequence, pad_catted_indices, pad_packed_indices, \
-    pad_sequence
 
 
 @given(

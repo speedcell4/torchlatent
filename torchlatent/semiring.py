@@ -1,9 +1,14 @@
 import torch
 from torch import Tensor
+from torchrua import segment_logsumexp
+from torchrua import segment_max
+from torchrua import segment_prod
+from torchrua import segment_sum
+from torchrua.reduction import reduce_sequence
+from torchrua.reduction import ReductionIndices
 
-from torchlatent.functional import logaddexp, logsumexp
-from torchrua import segment_logsumexp, segment_max, segment_prod, segment_sum
-from torchrua.reduction import reduce_sequence, ReductionIndices
+from torchlatent.functional import logaddexp
+from torchlatent.functional import logsumexp
 
 __all__ = [
     'Semiring', 'ExceptionSemiring',

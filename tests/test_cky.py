@@ -1,11 +1,20 @@
 import torch
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 from torch_struct import TreeCRF
-
-from tests.assertion import assert_close, assert_grad_close
-from tests.strategy import BATCH_SIZE, device, EMBEDDING_DIM, sizes, TINY_BATCH_SIZE, TOKEN_SIZE
-from torchlatent.cky import cky_partitions_indices, CkyDecoder, CkyDistribution
 from torchrua import cat_sequence
+
+from tests.assertion import assert_close
+from tests.assertion import assert_grad_close
+from tests.strategy import BATCH_SIZE
+from tests.strategy import device
+from tests.strategy import EMBEDDING_DIM
+from tests.strategy import sizes
+from tests.strategy import TINY_BATCH_SIZE
+from tests.strategy import TOKEN_SIZE
+from torchlatent.cky import cky_partitions_indices
+from torchlatent.cky import CkyDecoder
+from torchlatent.cky import CkyDistribution
 
 
 @given(

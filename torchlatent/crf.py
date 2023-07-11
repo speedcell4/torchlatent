@@ -1,17 +1,30 @@
 from functools import singledispatch
-from typing import NamedTuple, Tuple, Type, Union
+from typing import NamedTuple
+from typing import Tuple
+from typing import Type
+from typing import Union
 
 import torch
-from torch import nn, Tensor
+from torch import nn
+from torch import Tensor
 from torch.distributions.utils import lazy_property
-from torch.nn import functional as F, init
+from torch.nn import functional as F
+from torch.nn import init
 from torch.types import Device
+from torchrua import accumulate_sizes
+from torchrua import CattedSequence
+from torchrua import minor_sizes_to_ptr
+from torchrua import PackedSequence
+from torchrua import reduce_catted_indices
+from torchrua import reduce_packed_indices
+from torchrua import ReductionIndices
+from torchrua import RuaSequential
 
 from torchlatent.abc import DistributionABC
 from torchlatent.nn.classifier import Classifier
-from torchlatent.semiring import Log, Max, Semiring
-from torchrua import accumulate_sizes, CattedSequence, minor_sizes_to_ptr, PackedSequence, reduce_catted_indices, \
-    reduce_packed_indices, ReductionIndices, RuaSequential
+from torchlatent.semiring import Log
+from torchlatent.semiring import Max
+from torchlatent.semiring import Semiring
 
 Sequence = Union[CattedSequence, PackedSequence]
 

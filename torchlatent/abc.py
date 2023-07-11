@@ -7,7 +7,6 @@ from torch import Tensor
 from torch.distributions import Distribution
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
-
 from torchrua import CattedSequence
 
 Sequence = Union[CattedSequence, PackedSequence]

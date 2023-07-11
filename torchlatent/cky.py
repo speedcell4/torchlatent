@@ -1,18 +1,30 @@
 from abc import ABCMeta
 from functools import singledispatch
-from typing import NamedTuple, Tuple, Type, Union
+from typing import NamedTuple
+from typing import Tuple
+from typing import Type
+from typing import Union
 
 import torch
-from torch import nn, Tensor
+from torch import nn
+from torch import Tensor
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
+from torchrua import accumulate_sizes
+from torchrua import cat_packed_indices
+from torchrua import CattedSequence
+from torchrua import major_sizes_to_ptr
+from torchrua import pack_catted_sequence
+from torchrua import pad_indices
+from torchrua import pad_sequence
+from torchrua import RuaSequential
 
 from torchlatent.abc import DistributionABC
 from torchlatent.nn.classifier import BiaffineClassifier
-from torchlatent.semiring import Log, Max, Semiring
-from torchrua import accumulate_sizes, cat_packed_indices, CattedSequence, major_sizes_to_ptr, pack_catted_sequence, \
-    pad_indices, pad_sequence, RuaSequential
+from torchlatent.semiring import Log
+from torchlatent.semiring import Max
+from torchlatent.semiring import Semiring
 
 Sequence = Union[CattedSequence, PackedSequence]
 

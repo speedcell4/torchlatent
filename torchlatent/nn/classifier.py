@@ -1,5 +1,6 @@
 import torch
-from torch import nn, Tensor
+from torch import nn
+from torch import Tensor
 from torch.nn import init
 
 

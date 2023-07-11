@@ -1,9 +1,15 @@
 import torch
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
-from tests.assertion import assert_close, assert_grad_close
-from tests.strategy import device, sizes, TINY_BATCH_SIZE, TINY_TOKEN_SIZE
-from torchlatent.functional import logaddexp, logsumexp
+from tests.assertion import assert_close
+from tests.assertion import assert_grad_close
+from tests.strategy import device
+from tests.strategy import sizes
+from tests.strategy import TINY_BATCH_SIZE
+from tests.strategy import TINY_TOKEN_SIZE
+from torchlatent.functional import logaddexp
+from torchlatent.functional import logsumexp
 
 
 @given(
