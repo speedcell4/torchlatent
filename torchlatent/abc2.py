@@ -13,10 +13,6 @@ Sequence = Union[CattedSequence, PackedSequence, Tuple[Tensor, Tensor]]
 
 
 class StructuredDistribution(object, metaclass=ABCMeta):
-    @property
-    def emissions(self) -> Sequence:
-        raise NotImplementedError
-
     @lazy_property
     def log_emissions(self) -> Sequence:
         return self.emissions
@@ -37,9 +33,8 @@ class StructuredDistribution(object, metaclass=ABCMeta):
 
     @lazy_property
     def marginals(self) -> Tensor:
-        emissions, *_ = self.log_emissions
         grad, = torch.autograd.grad(
-            self.log_partitions, emissions, torch.ones_like(self.log_partitions),
+            self.log_partitions, self.emissions, torch.ones_like(self.log_partitions),
             create_graph=True, retain_graph=True, only_inputs=True, allow_unused=True,
 
         )
@@ -51,9 +46,8 @@ class StructuredDistribution(object, metaclass=ABCMeta):
 
     @lazy_property
     def argmax(self) -> Tensor:
-        emissions, *_ = self.max_emissions
         grad, = torch.autograd.grad(
-            self.max, emissions, torch.ones_like(self.max),
+            self.max, self.emissions, torch.ones_like(self.max),
             create_graph=False, retain_graph=False, only_inputs=True, allow_unused=True,
         )
         return grad
