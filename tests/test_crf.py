@@ -1,6 +1,13 @@
 import torch
 import torchcrf
 from hypothesis import given
+from torchnyan.assertion import assert_close
+from torchnyan.assertion import assert_grad_close
+from torchnyan.strategy import TINY_BATCH_SIZE
+from torchnyan.strategy import TINY_TOKEN_SIZE
+from torchnyan.strategy import TOKEN_SIZE
+from torchnyan.strategy import device
+from torchnyan.strategy import sizes
 from torchrua import cat_sequence
 from torchrua import pack_catted_indices
 from torchrua import pack_sequence
@@ -8,14 +15,6 @@ from torchrua import pad_catted_indices
 from torchrua import pad_packed_indices
 from torchrua import pad_sequence
 
-from tests.assertion import assert_close
-from tests.assertion import assert_grad_close
-from tests.strategy import device
-from tests.strategy import NUM_CONJUGATES
-from tests.strategy import sizes
-from tests.strategy import TINY_BATCH_SIZE
-from tests.strategy import TINY_TOKEN_SIZE
-from tests.strategy import TOKEN_SIZE
 from torchlatent.crf import CrfLayer
 
 
@@ -294,7 +293,7 @@ def test_crf_packed_decode(token_sizes, num_tags):
 
 @given(
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE),
-    num_conjugates=sizes(NUM_CONJUGATES),
+    num_conjugates=sizes(TOKEN_SIZE),
     num_tags=sizes(TINY_TOKEN_SIZE),
 )
 def test_conjugated_catted_fit(token_sizes, num_conjugates, num_tags):
@@ -343,7 +342,7 @@ def test_conjugated_catted_fit(token_sizes, num_conjugates, num_tags):
 
 @given(
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE),
-    num_conjugates=sizes(NUM_CONJUGATES),
+    num_conjugates=sizes(TOKEN_SIZE),
     num_tags=sizes(TINY_TOKEN_SIZE),
 )
 def test_conjugated_packed_fit(token_sizes, num_conjugates, num_tags):
@@ -392,7 +391,7 @@ def test_conjugated_packed_fit(token_sizes, num_conjugates, num_tags):
 
 @given(
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE),
-    num_conjugates=sizes(NUM_CONJUGATES),
+    num_conjugates=sizes(TOKEN_SIZE),
     num_tags=sizes(TINY_TOKEN_SIZE),
 )
 def test_dynamic_fit(token_sizes, num_conjugates, num_tags):

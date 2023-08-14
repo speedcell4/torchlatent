@@ -15,14 +15,6 @@ setup(
     python_requires='>=3.8',
     install_requires=[
         'numpy',
-        'torchrua>=0.4.0',
+        'torchrua',
     ],
-    extras_require={
-        'dev': [
-            'einops',
-            'pytest',
-            'hypothesis',
-            'pytorch-crf',
-        ],
-    }
 )

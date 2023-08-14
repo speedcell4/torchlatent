@@ -1,9 +1,9 @@
 import torch
 from hypothesis import given
-from torch.testing import assert_close
 from torchcrf import CRF
 from torchnyan import BATCH_SIZE
 from torchnyan import TOKEN_SIZE
+from torchnyan import assert_close
 from torchnyan import assert_grad_close
 from torchnyan import device
 from torchnyan import sizes

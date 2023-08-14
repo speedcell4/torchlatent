@@ -28,8 +28,8 @@ def crf_partitions(emissions: Sequence, transitions: Transitions, semiring: Type
 
     assert isinstance(emissions, PackedSequence)
 
-    transitions, head_transitions, last_transitions = transitions
     emissions, batch_sizes, _, unsorted_indices = emissions
+    transitions, head_transitions, last_transitions = transitions
 
     last_indices = last_packed_indices(
         batch_sizes=batch_sizes,
@@ -40,14 +40,14 @@ def crf_partitions(emissions: Sequence, transitions: Transitions, semiring: Type
     _, *batch_sizes = sections = batch_sizes.detach().cpu().tolist()
     emission, *emissions = torch.split(emissions, sections, dim=0)
 
-    chunks = [semiring.mul(head_transitions, emission)]
+    charts = [semiring.mul(head_transitions, emission)]
     for emission, batch_size in zip(emissions, batch_sizes):
-        chunks.append(semiring.mul(
-            semiring.bmm(chunks[-1][:batch_size], transitions),
+        charts.append(semiring.mul(
+            semiring.bmm(charts[-1][:batch_size], transitions),
             emission,
         ))
 
-    emission = torch.cat(chunks, dim=0)[last_indices]
+    emission = torch.cat(charts, dim=0)[last_indices]
     return semiring.sum(semiring.mul(emission, last_transitions), dim=-1)
 
 

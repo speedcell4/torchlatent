@@ -1,13 +1,13 @@
 import torch
 from hypothesis import given
 from hypothesis import strategies as st
+from torchnyan.assertion import assert_close
+from torchnyan.assertion import assert_grad_close
+from torchnyan.strategy import TINY_BATCH_SIZE
+from torchnyan.strategy import TINY_TOKEN_SIZE
+from torchnyan.strategy import device
+from torchnyan.strategy import sizes
 
-from tests.assertion import assert_close
-from tests.assertion import assert_grad_close
-from tests.strategy import device
-from tests.strategy import sizes
-from tests.strategy import TINY_BATCH_SIZE
-from tests.strategy import TINY_TOKEN_SIZE
 from torchlatent.functional import logaddexp
 from torchlatent.functional import logsumexp
 
