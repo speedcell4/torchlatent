@@ -4,12 +4,18 @@ from typing import Type
 import torch
 from torch import Tensor
 from torch import nn
+from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torch.nn.utils.rnn import PackedSequence
 from torchrua import CattedSequence
+from torchrua import head_catted_sequence
+from torchrua import last_catted_sequence
 from torchrua import last_packed_indices
 from torchrua import pack_catted_sequence
 from torchrua import pack_padded_sequence
+from torchrua import pad_catted_sequence
+from torchrua import pad_indices
+from torchrua import pad_packed_sequence
 
 from torchlatent.abc2 import Sequence
 from torchlatent.abc2 import StructuredDistribution
@@ -18,6 +24,34 @@ from torchlatent.semiring import Max
 from torchlatent.semiring import Semiring
 
 Transitions = Tuple[Tensor, Tensor, Tensor]
+
+
+def crf_scores(emissions: Sequence, targets: Sequence,
+               transitions: Transitions, semiring: Type[Semiring]) -> Tensor:
+    if isinstance(emissions, CattedSequence):
+        emissions, _ = pad_catted_sequence(emissions, batch_first=True)
+    elif isinstance(emissions, PackedSequence):
+        emissions, _ = pad_packed_sequence(emissions, batch_first=True)
+    else:
+        emissions, _ = emissions
+
+    transitions, head_transitions, last_transitions = transitions
+
+    head_transitions = head_transitions[head_catted_sequence(targets)]
+    last_transitions = last_transitions[last_catted_sequence(targets)]
+    transitions = transitions[targets.data.roll(1, dims=[0]), targets.data]
+
+    _, (batch_ptr, token_ptr), _ = pad_indices(targets, batch_first=True)
+    emissions = emissions[batch_ptr, token_ptr, targets.data]
+    emissions = semiring.segment_prod(emissions, sizes=targets.token_sizes)
+
+    token_sizes = torch.stack([torch.ones_like(targets.token_sizes), targets.token_sizes - 1], dim=-1)
+    transitions = semiring.segment_prod(transitions, sizes=token_sizes.view(-1))[1::2]
+
+    return semiring.mul(
+        semiring.mul(head_transitions, last_transitions),
+        semiring.mul(emissions, transitions),
+    )
 
 
 def crf_partitions(emissions: Sequence, transitions: Transitions, semiring: Type[Semiring]) -> Tensor:
@@ -58,8 +92,14 @@ class CrfDistribution(StructuredDistribution):
         self.transitions = transitions
 
     def log_scores(self, targets: Sequence) -> Tensor:
-        raise NotImplementedError
+        return crf_scores(
+            emissions=self.emissions,
+            targets=targets,
+            transitions=self.transitions,
+            semiring=Log,
+        )
 
+    @lazy_property
     def log_partitions(self) -> Tensor:
         return crf_partitions(
             emissions=self.emissions,
@@ -67,6 +107,7 @@ class CrfDistribution(StructuredDistribution):
             semiring=Log,
         )
 
+    @lazy_property
     def max(self) -> Tensor:
         return crf_partitions(
             emissions=self.emissions,
@@ -76,7 +117,7 @@ class CrfDistribution(StructuredDistribution):
 
 
 class CrfDecoder(nn.Module):
-    def __init__(self, num_targets: int) -> None:
+    def __init__(self, *, num_targets: int) -> None:
         super(CrfDecoder, self).__init__()
 
         self.num_targets = num_targets

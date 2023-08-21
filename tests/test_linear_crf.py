@@ -12,7 +12,46 @@ from torchrua import pack_sequence
 from torchrua import pad_sequence
 
 from torchlatent.linear_crf import crf_partitions
+from torchlatent.linear_crf import crf_scores
 from torchlatent.semiring import Log
+
+
+@given(
+    token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
+    num_targets=sizes(TOKEN_SIZE),
+)
+def test_crf_catted_partitions(token_sizes, num_targets):
+    emissions = [
+        torch.randn((token_size, num_targets), device=device, requires_grad=True)
+        for token_size in token_sizes
+    ]
+
+    tags = [
+        torch.randint(0, num_targets, (token_size,), device=device)
+        for token_size in token_sizes
+    ]
+
+    excepted_emissions, token_sizes = pad_sequence(emissions, batch_first=True)
+    index = torch.arange(token_sizes.max().detach().cpu().item(), device=token_sizes.device)
+    mask = index[None, :] < token_sizes[:, None]
+
+    excepted_tags, _ = pad_sequence(tags, batch_first=True)
+
+    excepted_crf = CRF(num_tags=num_targets, batch_first=False)
+    excepted = excepted_crf._compute_score(
+        excepted_emissions.transpose(0, 1),
+        excepted_tags.transpose(0, 1), mask.t(),
+    )
+
+    actual = crf_scores(
+        emissions=pad_sequence(emissions, batch_first=True),
+        targets=cat_sequence(tags),
+        transitions=(excepted_crf.transitions, excepted_crf.start_transitions, excepted_crf.end_transitions),
+        semiring=Log,
+    )
+
+    assert_close(actual=actual, expected=excepted)
+    assert_grad_close(actual=actual, expected=excepted, inputs=emissions)
 
 
 @given(
