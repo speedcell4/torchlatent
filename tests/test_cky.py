@@ -2,6 +2,10 @@ import torch
 from hypothesis import given
 from hypothesis import strategies as st
 from torch_struct import TreeCRF
+
+from torchlatent.cky import CkyDecoder
+from torchlatent.cky import CkyDistribution
+from torchlatent.cky import cky_partitions_indices
 from torchnyan.assertion import assert_close
 from torchnyan.assertion import assert_grad_close
 from torchnyan.strategy import BATCH_SIZE
@@ -11,10 +15,6 @@ from torchnyan.strategy import TOKEN_SIZE
 from torchnyan.strategy import device
 from torchnyan.strategy import sizes
 from torchrua import cat_sequence
-
-from torchlatent.cky import CkyDecoder
-from torchlatent.cky import CkyDistribution
-from torchlatent.cky import cky_partitions_indices
 
 
 @given(

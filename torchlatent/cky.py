@@ -6,25 +6,17 @@ from typing import Type
 from typing import Union
 
 import torch
-from torch import nn
 from torch import Tensor
+from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn.utils.rnn import PackedSequence
 from torch.types import Device
-from torchrua import accumulate_sizes
-from torchrua import cat_packed_indices
-from torchrua import CattedSequence
-from torchrua import major_sizes_to_ptr
-from torchrua import pack_catted_sequence
-from torchrua import pad_indices
-from torchrua import pad_sequence
-from torchrua import RuaSequential
+from torchlatent.abc2 import StructuredDistribution
 
-from torchlatent.abc import DistributionABC
-from torchlatent.nn.classifier import BiaffineClassifier
 from torchlatent.semiring import Log
 from torchlatent.semiring import Max
 from torchlatent.semiring import Semiring
+from torchrua import CattedSequence
 
 Sequence = Union[CattedSequence, PackedSequence]
 
@@ -114,7 +106,7 @@ def cky_partitions(data: Tensor, indices: CkyIndices, *, semiring: Type[Semiring
     return tensor1[tgt]
 
 
-class CkyDistribution(DistributionABC):
+class CkyDistribution(StructuredDistribution):
     def __init__(self, emissions: Tensor, indices: CkyIndices) -> None:
         super(CkyDistribution, self).__init__(validate_args=False)
 
