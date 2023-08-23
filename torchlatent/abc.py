@@ -4,6 +4,7 @@ from typing import Union
 import torch
 import torch.autograd
 from torch import Tensor
+from torch import nn
 from torch.distributions.utils import lazy_property
 
 from torchrua import C
@@ -40,9 +41,24 @@ class StructuredDistribution(object, metaclass=ABCMeta):
         raise NotImplementedError
 
     @lazy_property
-    def argmax(self) -> Union[C, D, P]:
+    def argmax(self) -> Tensor:
         grad, = torch.autograd.grad(
             self.max, self.emissions.data, torch.ones_like(self.max),
             create_graph=False, retain_graph=False, only_inputs=True, allow_unused=True,
         )
-        return self.emissions._replace(data=grad.argmax(dim=-1))
+        return grad
+
+
+class StructuredDecoder(nn.Module):
+    def __init__(self, *, num_targets: int) -> None:
+        super(StructuredDecoder, self).__init__()
+        self.num_targets = num_targets
+
+    def reset_parameters(self) -> None:
+        pass
+
+    def extra_repr(self) -> str:
+        return f'num_targets={self.num_targets}'
+
+    def forward(self, emissions: Union[C, D, P]) -> StructuredDistribution:
+        raise NotImplementedError

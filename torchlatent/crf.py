@@ -8,6 +8,7 @@ from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn import init
 
+from torchlatent.abc import StructuredDecoder
 from torchlatent.abc import StructuredDistribution
 from torchlatent.semiring import Log
 from torchlatent.semiring import Max
@@ -88,12 +89,15 @@ class CrfDistribution(StructuredDistribution):
             semiring=Max,
         )
 
+    @lazy_property
+    def argmax(self) -> Union[C, D, P]:
+        argmax = super(CrfDistribution, self).argmax.argmax(dim=-1)
+        return self.emissions._replace(data=argmax)
 
-class CrfDecoder(nn.Module):
+
+class CrfDecoder(StructuredDecoder):
     def __init__(self, *, num_targets: int) -> None:
-        super(CrfDecoder, self).__init__()
-
-        self.num_targets = num_targets
+        super(CrfDecoder, self).__init__(num_targets=num_targets)
 
         self.transitions = nn.Parameter(torch.empty((num_targets, num_targets)))
         self.head_transitions = nn.Parameter(torch.empty((num_targets,)))
@@ -105,9 +109,6 @@ class CrfDecoder(nn.Module):
         init.zeros_(self.transitions)
         init.zeros_(self.head_transitions)
         init.zeros_(self.last_transitions)
-
-    def extra_repr(self) -> str:
-        return f'num_targets={self.num_targets}'
 
     def forward(self, emissions: Union[C, D, P]) -> CrfDistribution:
         return CrfDistribution(
