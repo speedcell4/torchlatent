@@ -36,26 +36,26 @@ def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
         for token_size in token_sizes
     ]
 
-    excepted_crf = CRF(num_tags=num_targets, batch_first=False)
+    expected_crf = CRF(num_tags=num_targets, batch_first=False)
 
-    excepted_emissions = pad_sequence(inputs)
-    excepted_tags = pad_sequence(targets)
+    expected_emissions = pad_sequence(inputs)
+    expected_tags = pad_sequence(targets)
 
-    excepted = excepted_crf._compute_score(
-        excepted_emissions.data.transpose(0, 1),
-        excepted_tags.data.transpose(0, 1),
-        excepted_emissions.mask().transpose(0, 1),
+    expected = expected_crf._compute_score(
+        expected_emissions.data.transpose(0, 1),
+        expected_tags.data.transpose(0, 1),
+        expected_emissions.mask().transpose(0, 1),
     )
 
     actual = crf_scores(
         emissions=rua_emissions(inputs),
         targets=rua_targets(targets),
-        transitions=(excepted_crf.transitions, excepted_crf.start_transitions, excepted_crf.end_transitions),
+        transitions=(expected_crf.transitions, expected_crf.start_transitions, expected_crf.end_transitions),
         semiring=Log,
     )
 
-    assert_close(actual=actual, expected=excepted)
-    assert_grad_close(actual=actual, expected=excepted, inputs=inputs)
+    assert_close(actual=actual, expected=expected)
+    assert_grad_close(actual=actual, expected=expected, inputs=inputs)
 
 
 @given(
@@ -69,23 +69,23 @@ def test_crf_partitions(token_sizes, num_targets, rua_emissions):
         for token_size in token_sizes
     ]
 
-    excepted_crf = CRF(num_tags=num_targets, batch_first=False)
+    expected_crf = CRF(num_tags=num_targets, batch_first=False)
 
-    excepted_emissions = pad_sequence(inputs)
+    expected_emissions = pad_sequence(inputs)
 
-    excepted = excepted_crf._compute_normalizer(
-        excepted_emissions.data.transpose(0, 1),
-        excepted_emissions.mask().t(),
+    expected = expected_crf._compute_normalizer(
+        expected_emissions.data.transpose(0, 1),
+        expected_emissions.mask().t(),
     )
 
     actual = crf_partitions(
         emissions=rua_emissions(inputs),
-        transitions=(excepted_crf.transitions, excepted_crf.start_transitions, excepted_crf.end_transitions),
+        transitions=(expected_crf.transitions, expected_crf.start_transitions, expected_crf.end_transitions),
         semiring=Log,
     )
 
-    assert_close(actual=actual, expected=excepted, rtol=1e-4, atol=1e-4)
-    assert_grad_close(actual=actual, expected=excepted, inputs=inputs, rtol=1e-4, atol=1e-4)
+    assert_close(actual=actual, expected=expected, rtol=1e-4, atol=1e-4)
+    assert_grad_close(actual=actual, expected=expected, inputs=inputs, rtol=1e-4, atol=1e-4)
 
 
 @given(
@@ -99,21 +99,21 @@ def test_crf_argmax(token_sizes, num_targets, rua_emissions):
         for token_size in token_sizes
     ]
 
-    excepted_crf = CRF(num_tags=num_targets, batch_first=False)
+    expected_crf = CRF(num_tags=num_targets, batch_first=False)
 
-    excepted_emissions = pad_sequence(inputs)
+    expected_emissions = pad_sequence(inputs)
 
-    excepted = excepted_crf.decode(
-        excepted_emissions.data.transpose(0, 1),
-        excepted_emissions.mask().t(),
+    expected = expected_crf.decode(
+        expected_emissions.data.transpose(0, 1),
+        expected_emissions.mask().t(),
     )
-    excepted = cat_sequence([torch.tensor(tensor, device=device) for tensor in excepted])
+    expected = cat_sequence([torch.tensor(tensor, device=device) for tensor in expected])
 
     actual_crf = CrfDecoder(num_targets=num_targets)
-    actual_crf.transitions = excepted_crf.transitions
-    actual_crf.head_transitions = excepted_crf.start_transitions
-    actual_crf.last_transitions = excepted_crf.end_transitions
+    actual_crf.transitions = expected_crf.transitions
+    actual_crf.head_transitions = expected_crf.start_transitions
+    actual_crf.last_transitions = expected_crf.end_transitions
 
     actual = actual_crf(rua_emissions(inputs)).argmax.cat()
 
-    assert_sequence_close(actual=actual, expected=excepted)
+    assert_sequence_close(actual=actual, expected=expected)
