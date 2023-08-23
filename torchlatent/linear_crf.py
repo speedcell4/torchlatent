@@ -32,37 +32,28 @@ def crf_scores(emissions: Union[C, D, P], targets: Union[C, D, P], transitions: 
         semiring.mul(emissions, transitions),
     )
 
-# def crf_partitions(emissions: Sequence, transitions: Transitions, semiring: Type[Semiring]) -> Tensor:
-#     if isinstance(emissions, CattedSequence):
-#         emissions = pack_catted_sequence(emissions)
-#     elif isinstance(emissions, tuple) and len(emissions) == 2:
-#         emissions = pack_padded_sequence(*emissions, batch_first=True)
-#
-#     assert isinstance(emissions, PackedSequence)
-#
-#     emissions, batch_sizes, _, unsorted_indices = emissions
-#     transitions, head_transitions, last_transitions = transitions
-#
-#     last_indices = last_packed_indices(
-#         batch_sizes=batch_sizes,
-#         unsorted_indices=unsorted_indices,
-#         device=emissions.device,
-#     )
-#
-#     _, *batch_sizes = sections = batch_sizes.detach().cpu().tolist()
-#     emission, *emissions = torch.split(emissions, sections, dim=0)
-#
-#     charts = [semiring.mul(head_transitions, emission)]
-#     for emission, batch_size in zip(emissions, batch_sizes):
-#         charts.append(semiring.mul(
-#             semiring.bmm(charts[-1][:batch_size], transitions),
-#             emission,
-#         ))
-#
-#     emission = torch.cat(charts, dim=0)[last_indices]
-#     return semiring.sum(semiring.mul(emission, last_transitions), dim=-1)
-#
-#
+
+def crf_partitions(emissions: Union[C, D, P], transitions: T, semiring: Type[Semiring]) -> Tensor:
+    transitions, head_transitions, last_transitions = transitions
+
+    emissions = emissions.pack()
+    last_indices = emissions.idx().last()
+    emissions, batch_sizes, _, unsorted_indices = emissions
+
+    _, *batch_sizes = sections = batch_sizes.detach().cpu().tolist()
+    emission, *emissions = torch.split(emissions, sections, dim=0)
+
+    charts = [semiring.mul(head_transitions, emission)]
+    for emission, batch_size in zip(emissions, batch_sizes):
+        charts.append(semiring.mul(
+            semiring.bmm(charts[-1][:batch_size], transitions),
+            emission,
+        ))
+
+    emission = torch.cat(charts, dim=0)[last_indices]
+    return semiring.sum(semiring.mul(emission, last_transitions), dim=-1)
+
+
 # class CrfDistribution(StructuredDistribution):
 #     def __init__(self, emissions: Sequence, transitions: Transitions) -> None:
 #         super(CrfDistribution, self).__init__()
