@@ -12,12 +12,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.8'
+          python-version: '3.9'
       - name: Install dependencies
         run: |
           python -m pip install pip setuptools wheel --upgrade
           python -m pip install torch
-          python -m pip install pytest hypothesis torchnyan pytorch-crf
+          python -m pip install pytest hypothesis torchnyan pytorch-crf torch-struct
           python -m pip install git+https://github.com/speedcell4/torchrua.git@develop --force-reinstall --no-deps
       - name: Test with pytest
         run: |
