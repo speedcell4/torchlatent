@@ -1,13 +1,8 @@
 # TorchLatent
 
-![Unit Tests](https://github.com/speedcell4/torchlatent/workflows/Unit%20Tests/badge.svg)
+[![unit tests](https://github.com/speedcell4/torchlatent/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/speedcell4/torchlatent/actions/workflows/unit-tests.yml)
 [![PyPI version](https://badge.fury.io/py/torchlatent.svg)](https://badge.fury.io/py/torchlatent)
 [![Downloads](https://pepy.tech/badge/torchrua)](https://pepy.tech/project/torchrua)
-
-## Requirements
-
-- Python 3.8
-- PyTorch 2.0
 
 ## Installation
 
