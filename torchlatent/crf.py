@@ -22,15 +22,15 @@ T = Tuple[Tensor, Tensor, Tensor]
 def crf_scores(emissions: Union[C, D, P], targets: Union[C, D, P], transitions: T, semiring: Type[Semiring]) -> Tensor:
     transitions, head_transitions, last_transitions = transitions
 
-    targets = targets.cat()
-    head_transitions = head_transitions[targets.head().data]
-    last_transitions = last_transitions[targets.last().data]
-    transitions = transitions[targets.roll(1).data, targets.data]
+    targets = _, token_sizes = targets.cat()
+    head_transitions = targets.head().rua(head_transitions)
+    last_transitions = targets.last().rua(last_transitions)
+    transitions = targets.data.roll(1).rua(transitions, targets)
 
     emissions, _ = emissions.idx().cat().rua(emissions, targets)
-    emissions = semiring.segment_prod(emissions, sizes=targets.token_sizes)
+    emissions = semiring.segment_prod(emissions, sizes=token_sizes)
 
-    token_sizes = torch.stack([torch.ones_like(targets.token_sizes), targets.token_sizes - 1], dim=-1)
+    token_sizes = torch.stack([torch.ones_like(token_sizes), token_sizes - 1], dim=-1)
     transitions = semiring.segment_prod(transitions, sizes=token_sizes.view(-1))[1::2]
 
     return semiring.mul(
@@ -44,7 +44,7 @@ def crf_partitions(emissions: Union[C, D, P], transitions: T, semiring: Type[Sem
 
     emissions = emissions.pack()
     last_indices = emissions.idx().last()
-    emissions, batch_sizes, _, unsorted_indices = emissions
+    emissions, batch_sizes, _, _ = emissions
 
     _, *batch_sizes = sections = batch_sizes.detach().cpu().tolist()
     emission, *emissions = torch.split(emissions, sections, dim=0)
