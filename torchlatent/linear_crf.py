@@ -4,7 +4,13 @@ from typing import Union
 
 import torch
 from torch import Tensor
+from torch import nn
+from torch.distributions.utils import lazy_property
+from torch.nn import init
 
+from torchlatent.abc2 import StructuredDistribution
+from torchlatent.semiring import Log
+from torchlatent.semiring import Max
 from torchlatent.semiring import Semiring
 from torchrua import C
 from torchrua import D
@@ -54,63 +60,61 @@ def crf_partitions(emissions: Union[C, D, P], transitions: T, semiring: Type[Sem
     return semiring.sum(semiring.mul(emission, last_transitions), dim=-1)
 
 
-# class CrfDistribution(StructuredDistribution):
-#     def __init__(self, emissions: Sequence, transitions: Transitions) -> None:
-#         super(CrfDistribution, self).__init__()
-#         self.emissions = emissions
-#         self.transitions = transitions
-#
-#     def log_scores(self, targets: Sequence) -> Tensor:
-#         return crf_scores(
-#             emissions=self.emissions,
-#             targets=targets,
-#             transitions=self.transitions,
-#             semiring=Log,
-#         )
-#
-#     @lazy_property
-#     def log_partitions(self) -> Tensor:
-#         return crf_partitions(
-#             emissions=self.emissions,
-#             transitions=self.transitions,
-#             semiring=Log,
-#         )
-#
-#     @lazy_property
-#     def max(self) -> Tensor:
-#         return crf_partitions(
-#             emissions=self.emissions,
-#             transitions=self.transitions,
-#             semiring=Max,
-#         )
-#
-#
-# class CrfDecoder(nn.Module):
-#     def __init__(self, *, num_targets: int) -> None:
-#         super(CrfDecoder, self).__init__()
-#
-#         self.num_targets = num_targets
-#
-#         self.transitions = nn.Parameter(torch.empty((num_targets, num_targets)))
-#         self.head_transitions = nn.Parameter(torch.empty((num_targets,)))
-#         self.last_transitions = nn.Parameter(torch.empty((num_targets,)))
-#
-#         self.reset_parameters()
-#
-#     def reset_parameters(self) -> None:
-#         init.zeros_(self.transitions)
-#         init.zeros_(self.head_transitions)
-#         init.zeros_(self.last_transitions)
-#
-#     def extra_repr(self) -> str:
-#         return f'num_targets={self.num_targets}'
-#
-#     def forward(self, emissions: Sequence) -> CrfDistribution:
-#         return CrfDistribution(
-#             emissions=emissions,
-#             transitions=(
-#                 self.transitions,
-#                 self.head_transitions,
-#                 self.last_transitions,
-#             ),
-#         )
+class CrfDistribution(StructuredDistribution):
+    def __init__(self, emissions: Union[C, D, P], transitions: T) -> None:
+        super(CrfDistribution, self).__init__(emissions=emissions)
+        self.transitions = transitions
+
+    def log_scores(self, targets: Union[C, D, P]) -> Tensor:
+        return crf_scores(
+            emissions=self.emissions, targets=targets,
+            transitions=self.transitions,
+            semiring=Log,
+        )
+
+    @lazy_property
+    def log_partitions(self) -> Tensor:
+        return crf_partitions(
+            emissions=self.emissions,
+            transitions=self.transitions,
+            semiring=Log,
+        )
+
+    @lazy_property
+    def max(self) -> Tensor:
+        return crf_partitions(
+            emissions=self.emissions,
+            transitions=self.transitions,
+            semiring=Max,
+        )
+
+
+class CrfDecoder(nn.Module):
+    def __init__(self, *, num_targets: int) -> None:
+        super(CrfDecoder, self).__init__()
+
+        self.num_targets = num_targets
+
+        self.transitions = nn.Parameter(torch.empty((num_targets, num_targets)))
+        self.head_transitions = nn.Parameter(torch.empty((num_targets,)))
+        self.last_transitions = nn.Parameter(torch.empty((num_targets,)))
+
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        init.zeros_(self.transitions)
+        init.zeros_(self.head_transitions)
+        init.zeros_(self.last_transitions)
+
+    def extra_repr(self) -> str:
+        return f'num_targets={self.num_targets}'
+
+    def forward(self, emissions: Union[C, D, P]) -> CrfDistribution:
+        return CrfDistribution(
+            emissions=emissions,
+            transitions=(
+                self.transitions,
+                self.head_transitions,
+                self.last_transitions,
+            ),
+        )
