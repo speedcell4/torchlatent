@@ -1,9 +1,12 @@
 import torch
 from torch import Tensor
 
-from torchlatent.functional import logaddexp, logsumexp
-from torchrua import segment_logsumexp, segment_max, segment_prod, segment_sum
-from torchrua.reduction import reduce_sequence, ReductionIndices
+from torchlatent.functional import logaddexp
+from torchlatent.functional import logsumexp
+from torchrua import segment_logsumexp
+from torchrua import segment_max
+from torchrua import segment_prod
+from torchrua import segment_sum
 
 __all__ = [
     'Semiring', 'ExceptionSemiring',
@@ -52,10 +55,6 @@ class Semiring(object):
     @classmethod
     def bmm(cls, x: Tensor, y: Tensor) -> Tensor:
         return cls.sum(cls.mul(x[..., :, :, None], y[..., None, :, :]), dim=-2, keepdim=False)
-
-    @classmethod
-    def reduce(cls, tensor: Tensor, indices: ReductionIndices) -> Tensor:
-        return reduce_sequence(data=tensor, indices=indices, op=cls.bmm)
 
 
 class Std(Semiring):

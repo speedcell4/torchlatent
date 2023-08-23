@@ -1,4 +1,5 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages
+from setuptools import setup
 
 name = 'torchlatent'
 
@@ -11,17 +12,9 @@ setup(
     author='speedcell4',
     author_email='speedcell4@gmail.com',
     description='High Performance Structured Prediction in PyTorch',
-    python_requires='>=3.8',
+    python_requires='>=3.9',
     install_requires=[
         'numpy',
-        'torchrua>=0.4.0',
+        'torchrua',
     ],
-    extras_require={
-        'dev': [
-            'einops',
-            'pytest',
-            'hypothesis',
-            'pytorch-crf',
-        ],
-    }
 )
