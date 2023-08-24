@@ -4,16 +4,16 @@ from typing import Union
 import torch
 from torch import Tensor
 from torch.distributions.utils import lazy_property
+from torchrua import C
+from torchrua import CattedSequence
+from torchrua import D
+from torchrua import P
 
 from torchlatent.abc import StructuredDecoder
 from torchlatent.abc import StructuredDistribution
 from torchlatent.semiring import Log
 from torchlatent.semiring import Max
 from torchlatent.semiring import Semiring
-from torchrua import C
-from torchrua import CattedSequence
-from torchrua import D
-from torchrua import P
 
 
 def cky_scores(emissions: C, targets: Union[C, D, P], semiring: Type[Semiring]) -> Tensor:

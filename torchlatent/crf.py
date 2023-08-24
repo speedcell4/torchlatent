@@ -7,15 +7,15 @@ from torch import Tensor
 from torch import nn
 from torch.distributions.utils import lazy_property
 from torch.nn import init
+from torchrua import C
+from torchrua import D
+from torchrua import P
 
 from torchlatent.abc import StructuredDecoder
 from torchlatent.abc import StructuredDistribution
 from torchlatent.semiring import Log
 from torchlatent.semiring import Max
 from torchlatent.semiring import Semiring
-from torchrua import C
-from torchrua import D
-from torchrua import P
 
 T = Tuple[Tensor, Tensor, Tensor]
 

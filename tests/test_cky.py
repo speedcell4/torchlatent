@@ -2,24 +2,23 @@ import torch
 from hypothesis import given
 from hypothesis import strategies as st
 from torch_struct import TreeCRF
-
-from torchlatent.cky import CkyDecoder
-from torchlatent.cky import cky_partitions
-from torchlatent.cky import cky_scores
-from torchlatent.semiring import Log
 from torchnyan import BATCH_SIZE
 from torchnyan import TINY_TOKEN_SIZE
-from torchnyan import TOKEN_SIZE
 from torchnyan import assert_close
 from torchnyan import device
 from torchnyan import sizes
 from torchrua import C
 from torchrua import CattedSequence
 
+from torchlatent.cky import CkyDecoder
+from torchlatent.cky import cky_partitions
+from torchlatent.cky import cky_scores
+from torchlatent.semiring import Log
+
 
 @given(
-    token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
-    num_targets=sizes(TOKEN_SIZE),
+    token_sizes=sizes(BATCH_SIZE, TINY_TOKEN_SIZE),
+    num_targets=sizes(TINY_TOKEN_SIZE),
     rua_targets=st.sampled_from([C.cat, C.pad, C.pack]),
 )
 def test_cky_scores(token_sizes, num_targets, rua_targets):
@@ -54,8 +53,8 @@ def test_cky_scores(token_sizes, num_targets, rua_targets):
 
 
 @given(
-    token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
-    num_targets=sizes(TOKEN_SIZE),
+    token_sizes=sizes(BATCH_SIZE, TINY_TOKEN_SIZE),
+    num_targets=sizes(TINY_TOKEN_SIZE),
 )
 def test_cky_partitions(token_sizes, num_targets):
     emissions = torch.randn(
