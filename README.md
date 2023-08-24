@@ -15,7 +15,10 @@
 ## Latent Structures
 
 - [x] Conditional Random Fields (CRF)
-- [x] Cocke–Kasami-Younger algorithm (CKY)
-- [ ] Probabilistic Context-free Grammars (PCFG)
+- [x] Cocke–Kasami-Younger Algorithm (CKY)
+- [ ] Probabilistic Context-free Grammars (CFG)
+- [ ] Connectionist Temporal Classification (CTC)
+- [ ] Recurrent Neural Network Grammars (RNNG)
 - [ ] Non-Projective Dependency Tree (Matrix-tree Theorem)
 - [ ] Dependency Model with Valence (DMV)
+- [ ] Autoregressive Decoding (Beam Search)
