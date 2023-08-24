@@ -1,17 +1,20 @@
+<div align="center">
 # TorchLatent
 
-[![unit tests](https://github.com/speedcell4/torchlatent/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/speedcell4/torchlatent/actions/workflows/unit-tests.yml)
-[![PyPI version](https://badge.fury.io/py/torchlatent.svg)](https://badge.fury.io/py/torchlatent)
-[![Downloads](https://pepy.tech/badge/torchrua)](https://pepy.tech/project/torchrua)
+![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/speedcell4/torchlatent/unit-tests.yml?cacheSeconds=0)
+![PyPI - Version](https://img.shields.io/pypi/v/torchlatent?label=pypi%20version&cacheSeconds=0)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/torchlatent?cacheSeconds=0)
+
+</div>
 
 ## Installation
 
-`python3 -m pip torchlatent`
+`python -m pip torchlatent`
 
 ## Latent Structures
 
 - [x] Conditional Random Fields (CRF)
-- [x] Tree CRF
-- [ ] Non-Projective Dependency Tree (Matrix-tree Theorem)
+- [x] Cocke–Kasami-Younger algorithm (CKY)
 - [ ] Probabilistic Context-free Grammars (PCFG)
+- [ ] Non-Projective Dependency Tree (Matrix-tree Theorem)
 - [ ] Dependency Model with Valence (DMV)
