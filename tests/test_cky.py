@@ -23,7 +23,10 @@ from torchrua import CattedSequence
     rua_targets=st.sampled_from([C.cat, C.pad, C.pack]),
 )
 def test_cky_scores(token_sizes, num_targets, rua_targets):
-    emissions = torch.randn((len(token_sizes), max(token_sizes), max(token_sizes), num_targets), requires_grad=True)
+    emissions = torch.randn(
+        (len(token_sizes), max(token_sizes), max(token_sizes), num_targets),
+        device=device, requires_grad=True,
+    )
     token_sizes = torch.tensor(token_sizes, device=device)
 
     expected_cky = TreeCRF(emissions, lengths=token_sizes)
@@ -55,7 +58,10 @@ def test_cky_scores(token_sizes, num_targets, rua_targets):
     num_targets=sizes(TOKEN_SIZE),
 )
 def test_cky_partitions(token_sizes, num_targets):
-    emissions = torch.randn((len(token_sizes), max(token_sizes), max(token_sizes), num_targets), requires_grad=True)
+    emissions = torch.randn(
+        (len(token_sizes), max(token_sizes), max(token_sizes), num_targets),
+        device=device, requires_grad=True,
+    )
     token_sizes = torch.tensor(token_sizes, device=device)
 
     expected = TreeCRF(emissions, lengths=token_sizes).partition
@@ -74,7 +80,10 @@ def test_cky_partitions(token_sizes, num_targets):
     num_targets=sizes(TINY_TOKEN_SIZE),
 )
 def test_cky_argmax(token_sizes, num_targets):
-    emissions = torch.randn((len(token_sizes), max(token_sizes), max(token_sizes), num_targets), requires_grad=True)
+    emissions = torch.randn(
+        (len(token_sizes), max(token_sizes), max(token_sizes), num_targets),
+        device=device, requires_grad=True,
+    )
     token_sizes = torch.tensor(token_sizes, device=device)
 
     expected_cky = TreeCRF(emissions, lengths=token_sizes)

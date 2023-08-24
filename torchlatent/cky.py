@@ -37,9 +37,9 @@ def cky_partitions(emissions: C, semiring: Type[Semiring]) -> Tensor:
     tgt = emissions.token_sizes - 1, emissions.offsets()
 
     size = (token_size, cache_size, *emissions.data.size()[3:])
-    tensor0 = torch.full(size, fill_value=semiring.zero, device=emissions.data.device, requires_grad=False)
-    tensor1 = torch.full(size, fill_value=semiring.zero, device=emissions.data.device, requires_grad=False)
-    tensor2 = torch.full(size, fill_value=semiring.zero, device=emissions.data.device, requires_grad=False)
+    tensor0 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
+    tensor1 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
+    tensor2 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
 
     tensor0[src1] = emissions.data[src2]
     tensor1[0, :] = tensor2[-1, :] = tensor0[0, :]

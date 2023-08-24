@@ -36,7 +36,7 @@ def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
         for token_size in token_sizes
     ]
 
-    expected_crf = CRF(num_tags=num_targets, batch_first=False)
+    expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
     expected_emissions = pad_sequence(inputs)
     expected_tags = pad_sequence(targets)
@@ -69,7 +69,7 @@ def test_crf_partitions(token_sizes, num_targets, rua_emissions):
         for token_size in token_sizes
     ]
 
-    expected_crf = CRF(num_tags=num_targets, batch_first=False)
+    expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
     expected_emissions = pad_sequence(inputs)
 
@@ -99,7 +99,7 @@ def test_crf_argmax(token_sizes, num_targets, rua_emissions):
         for token_size in token_sizes
     ]
 
-    expected_crf = CRF(num_tags=num_targets, batch_first=False)
+    expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
     expected_emissions = pad_sequence(inputs)
 
