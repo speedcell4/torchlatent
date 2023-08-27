@@ -8,7 +8,6 @@ from torchnyan import assert_close
 from torchnyan import device
 from torchnyan import sizes
 from torchrua import C
-from torchrua import CattedSequence
 
 from torchlatent.cky import CkyDecoder
 from torchlatent.cky import cky_partitions
@@ -42,9 +41,9 @@ def test_cky_scores(token_sizes, num_targets, rua_targets):
 
     expected = expected_cky.max
 
-    targets = CattedSequence(data=torch.stack([x, y, z], dim=-1), token_sizes=token_sizes * 2 - 1)
+    targets = C(data=torch.stack([x, y, z], dim=-1), token_sizes=token_sizes * 2 - 1)
     actual = cky_scores(
-        emissions=CattedSequence(emissions, token_sizes),
+        emissions=C(emissions, token_sizes),
         targets=rua_targets(targets),
         semiring=Log,
     )
@@ -65,7 +64,7 @@ def test_cky_partitions(token_sizes, num_targets):
 
     expected = TreeCRF(emissions, lengths=token_sizes).partition
 
-    actual_emissions = CattedSequence(
+    actual_emissions = C(
         data=emissions.logsumexp(dim=-1),
         token_sizes=token_sizes,
     )
@@ -97,10 +96,10 @@ def test_cky_argmax(token_sizes, num_targets):
     index = torch.arange(n, device=mask.device)
     z = torch.masked_select(index[None, None, None, :], mask=mask)
 
-    expected = CattedSequence(data=torch.stack([x, y, z], dim=-1), token_sizes=token_sizes * 2 - 1)
+    expected = C(data=torch.stack([x, y, z], dim=-1), token_sizes=token_sizes * 2 - 1)
 
     actual_cky = CkyDecoder(num_targets=num_targets)
-    actual = actual_cky(emissions=CattedSequence(emissions, token_sizes)).argmax
+    actual = actual_cky(emissions=C(emissions, token_sizes)).argmax
 
     for actual, expected in zip(actual.tolist(), expected.tolist()):
         assert set(map(tuple, actual)) == set(map(tuple, expected))

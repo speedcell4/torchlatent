@@ -5,7 +5,6 @@ import torch
 from torch import Tensor
 from torch.distributions.utils import lazy_property
 from torchrua import C
-from torchrua import CattedSequence
 from torchrua import D
 from torchrua import P
 
@@ -89,7 +88,7 @@ class CkyDistribution(StructuredDistribution):
         index = torch.arange(n, device=mask.device)
         z = torch.masked_select(index[None, None, None, :], mask=mask)
 
-        return CattedSequence(
+        return C(
             data=torch.stack([x, y, z], dim=-1),
             token_sizes=self.emissions.token_sizes * 2 - 1,
         )

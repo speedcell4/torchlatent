@@ -9,9 +9,9 @@ from torchnyan import assert_grad_close
 from torchnyan import assert_sequence_close
 from torchnyan import device
 from torchnyan import sizes
-from torchrua import cat_sequence
-from torchrua import pack_sequence
-from torchrua import pad_sequence
+from torchrua import C
+from torchrua import D
+from torchrua import P
 
 from torchlatent.crf import CrfDecoder
 from torchlatent.crf import crf_partitions
@@ -22,8 +22,8 @@ from torchlatent.semiring import Log
 @given(
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
     num_targets=sizes(TOKEN_SIZE),
-    rua_emissions=st.sampled_from([cat_sequence, pad_sequence, pack_sequence]),
-    rua_targets=st.sampled_from([cat_sequence, pad_sequence, pack_sequence]),
+    rua_emissions=st.sampled_from([C.new, D.new, P.new]),
+    rua_targets=st.sampled_from([C.new, D.new, P.new]),
 )
 def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
     inputs = [
@@ -38,8 +38,8 @@ def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
 
     expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
-    expected_emissions = pad_sequence(inputs)
-    expected_tags = pad_sequence(targets)
+    expected_emissions = D.new(inputs)
+    expected_tags = D.new(targets)
 
     expected = expected_crf._compute_score(
         expected_emissions.data.transpose(0, 1),
@@ -61,7 +61,7 @@ def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
 @given(
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
     num_targets=sizes(TOKEN_SIZE),
-    rua_emissions=st.sampled_from([cat_sequence, pad_sequence, pack_sequence]),
+    rua_emissions=st.sampled_from([C.new, D.new, P.new]),
 )
 def test_crf_partitions(token_sizes, num_targets, rua_emissions):
     inputs = [
@@ -71,7 +71,7 @@ def test_crf_partitions(token_sizes, num_targets, rua_emissions):
 
     expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
-    expected_emissions = pad_sequence(inputs)
+    expected_emissions = D.new(inputs)
 
     expected = expected_crf._compute_normalizer(
         expected_emissions.data.transpose(0, 1),
@@ -91,7 +91,7 @@ def test_crf_partitions(token_sizes, num_targets, rua_emissions):
 @given(
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
     num_targets=sizes(TOKEN_SIZE),
-    rua_emissions=st.sampled_from([cat_sequence, pad_sequence, pack_sequence]),
+    rua_emissions=st.sampled_from([C.new, D.new, P.new]),
 )
 def test_crf_argmax(token_sizes, num_targets, rua_emissions):
     inputs = [
@@ -101,13 +101,13 @@ def test_crf_argmax(token_sizes, num_targets, rua_emissions):
 
     expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
-    expected_emissions = pad_sequence(inputs)
+    expected_emissions = D.new(inputs)
 
     expected = expected_crf.decode(
         expected_emissions.data.transpose(0, 1),
         expected_emissions.mask().t(),
     )
-    expected = cat_sequence([torch.tensor(tensor, device=device) for tensor in expected])
+    expected = C.new([torch.tensor(tensor, device=device) for tensor in expected])
 
     actual_crf = CrfDecoder(num_targets=num_targets)
     actual_crf.transitions = expected_crf.transitions
