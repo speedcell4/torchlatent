@@ -1,6 +1,9 @@
 name: unit tests
 
-on: [ push ]
+on:
+  push:
+  schedule:
+    - cron: "0 21 * * 6"
 
 jobs:
   build:
