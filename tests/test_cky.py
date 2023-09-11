@@ -16,6 +16,21 @@ from torchlatent.cky import cky_scores
 from torchlatent.semiring import Log
 
 
+def get_argmax(cky):
+    argmax = cky.argmax
+    mask = argmax > 0
+
+    _, t, _, n = mask.size()
+    index = torch.arange(t, device=mask.device)
+    x = torch.masked_select(index[None, :, None, None], mask=mask)
+    y = torch.masked_select(index[None, None, :, None], mask=mask)
+
+    index = torch.arange(n, device=mask.device)
+    z = torch.masked_select(index[None, None, None, :], mask=mask)
+
+    return argmax, x, y, z
+
+
 @given(
     token_sizes=sizes(BATCH_SIZE, TINY_TOKEN_SIZE),
     num_targets=sizes(TINY_TOKEN_SIZE),
@@ -27,20 +42,14 @@ def test_cky_scores(token_sizes, num_targets, rua_targets):
         device=device, requires_grad=True,
     )
     token_sizes = torch.tensor(token_sizes, device=device)
-
     expected_cky = TreeCRF(emissions, lengths=token_sizes)
 
-    mask = expected_cky.argmax > 0
-    _, t, _, n = mask.size()
+    argmax, x, y, z = get_argmax(expected_cky)
 
-    index = torch.arange(t, device=mask.device)
-    x = torch.masked_select(index[None, :, None, None], mask=mask)
-    y = torch.masked_select(index[None, None, :, None], mask=mask)
+    emissions = torch.randn_like(emissions, requires_grad=True)
 
-    index = torch.arange(n, device=mask.device)
-    z = torch.masked_select(index[None, None, None, :], mask=mask)
-
-    expected = expected_cky.max
+    expected_cky = TreeCRF(emissions, lengths=token_sizes)
+    expected = expected_cky.log_prob(argmax) + expected_cky.partition
 
     targets = C(data=torch.stack([x, y, z], dim=-1), token_sizes=token_sizes * 2 - 1)
     actual = cky_scores(
@@ -89,15 +98,7 @@ def test_cky_argmax(token_sizes, num_targets):
 
     expected_cky = TreeCRF(emissions, lengths=token_sizes)
 
-    mask = expected_cky.argmax > 0
-    _, t, _, n = mask.size()
-
-    index = torch.arange(t, device=mask.device)
-    x = torch.masked_select(index[None, :, None, None], mask=mask)
-    y = torch.masked_select(index[None, None, :, None], mask=mask)
-
-    index = torch.arange(n, device=mask.device)
-    z = torch.masked_select(index[None, None, None, :], mask=mask)
+    _, x, y, z = get_argmax(expected_cky)
 
     expected = C(data=torch.stack([x, y, z], dim=-1), token_sizes=token_sizes * 2 - 1)
 
