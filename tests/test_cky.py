@@ -5,6 +5,7 @@ from torch_struct import TreeCRF
 from torchnyan import BATCH_SIZE
 from torchnyan import TINY_TOKEN_SIZE
 from torchnyan import assert_close
+from torchnyan import assert_grad_close
 from torchnyan import device
 from torchnyan import sizes
 from torchrua import C
@@ -49,6 +50,7 @@ def test_cky_scores(token_sizes, num_targets, rua_targets):
     )
 
     assert_close(actual=actual, expected=expected)
+    assert_grad_close(actual=actual, expected=expected, inputs=(emissions,))
 
 
 @given(
@@ -71,6 +73,7 @@ def test_cky_partitions(token_sizes, num_targets):
     actual = cky_partitions(actual_emissions, Log)
 
     assert_close(actual=actual, expected=expected)
+    assert_grad_close(actual=actual, expected=expected, inputs=(emissions,))
 
 
 @given(
