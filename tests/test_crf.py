@@ -1,21 +1,10 @@
 import torch
-from hypothesis import given
-from hypothesis import strategies as st
+from hypothesis import given, strategies as st
 from torchcrf import CRF
-from torchnyan import BATCH_SIZE
-from torchnyan import TOKEN_SIZE
-from torchnyan import assert_close
-from torchnyan import assert_grad_close
-from torchnyan import assert_sequence_close
-from torchnyan import device
-from torchnyan import sizes
-from torchrua import C
-from torchrua import D
-from torchrua import P
+from torchnyan import assert_close, assert_grad_close, assert_sequence_close, BATCH_SIZE, device, sizes, TOKEN_SIZE
+from torchrua import C, D, P
 
-from torchlatent.crf import CrfDecoder
-from torchlatent.crf import crf_partitions
-from torchlatent.crf import crf_scores
+from torchlatent.crf import crf_partitions, crf_scores, CrfDecoder
 from torchlatent.semiring import Log
 
 

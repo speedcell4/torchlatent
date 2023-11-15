@@ -1,2 +1,1 @@
-from torchlatent.crf import CrfDecoder
-from torchlatent.crf import CrfDistribution
+from torchlatent.crf import CrfDecoder, CrfDistribution

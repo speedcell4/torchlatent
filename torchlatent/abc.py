@@ -3,12 +3,9 @@ from typing import Union
 
 import torch
 import torch.autograd
-from torch import Tensor
-from torch import nn
+from torch import nn, Tensor
 from torch.distributions.utils import lazy_property
-from torchrua import C
-from torchrua import D
-from torchrua import P
+from torchrua import C, D, P
 
 
 class StructuredDistribution(object, metaclass=ABCMeta):

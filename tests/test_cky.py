@@ -1,18 +1,10 @@
 import torch
-from hypothesis import given
-from hypothesis import strategies as st
+from hypothesis import given, strategies as st
 from torch_struct import TreeCRF
-from torchnyan import BATCH_SIZE
-from torchnyan import TINY_TOKEN_SIZE
-from torchnyan import assert_close
-from torchnyan import assert_grad_close
-from torchnyan import device
-from torchnyan import sizes
+from torchnyan import assert_close, assert_grad_close, BATCH_SIZE, device, sizes, TINY_TOKEN_SIZE
 from torchrua import C
 
-from torchlatent.cky import CkyDecoder
-from torchlatent.cky import cky_partitions
-from torchlatent.cky import cky_scores
+from torchlatent.cky import cky_partitions, cky_scores, CkyDecoder
 from torchlatent.semiring import Log
 
 

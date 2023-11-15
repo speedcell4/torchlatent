@@ -1,21 +1,13 @@
-from typing import Tuple
-from typing import Type
-from typing import Union
+from typing import Tuple, Type, Union
 
 import torch
-from torch import Tensor
-from torch import nn
+from torch import nn, Tensor
 from torch.distributions.utils import lazy_property
 from torch.nn import init
-from torchrua import C
-from torchrua import D
-from torchrua import P
+from torchrua import C, D, P
 
-from torchlatent.abc import StructuredDecoder
-from torchlatent.abc import StructuredDistribution
-from torchlatent.semiring import Log
-from torchlatent.semiring import Max
-from torchlatent.semiring import Semiring
+from torchlatent.abc import StructuredDecoder, StructuredDistribution
+from torchlatent.semiring import Log, Max, Semiring
 
 T = Tuple[Tensor, Tensor, Tensor]
 
