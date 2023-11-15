@@ -1,18 +1,12 @@
-from typing import Type
-from typing import Union
+from typing import Type, Union
 
 import torch
 from torch import Tensor
 from torch.distributions.utils import lazy_property
-from torchrua import C
-from torchrua import D
-from torchrua import P
+from torchrua import C, D, P
 
-from torchlatent.abc import StructuredDecoder
-from torchlatent.abc import StructuredDistribution
-from torchlatent.semiring import Log
-from torchlatent.semiring import Max
-from torchlatent.semiring import Semiring
+from torchlatent.abc import StructuredDecoder, StructuredDistribution
+from torchlatent.semiring import Log, Max, Semiring
 
 
 def cky_scores(emissions: C, targets: Union[C, D, P], semiring: Type[Semiring]) -> Tensor:
@@ -29,27 +23,32 @@ def cky_partitions(emissions: C, semiring: Type[Semiring]) -> Tensor:
     y_ptr = token_ptr[z_ptr]
 
     _, token_size, *_ = emissions.size()
-    cache_size, = y_ptr.size()
+    cache_size, = batch_ptr.size()
 
-    src1 = y_ptr - x_ptr, x_ptr + z_ptr - y_ptr
-    src2 = batch_ptr[z_ptr], x_ptr, y_ptr
+    w_ptr = y_ptr - x_ptr
+    src1 = w_ptr, z_ptr - w_ptr
+    # src2 = -w_ptr - 1, z_ptr
+
+    src = batch_ptr[z_ptr], x_ptr, y_ptr
     tgt = emissions.token_sizes - 1, emissions.offsets()
 
     size = (token_size, cache_size, *emissions.data.size()[3:])
-    tensor0 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
-    tensor1 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
-    tensor2 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
+    score1 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
+    # score2 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
+    chart1 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
+    chart2 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
 
-    tensor0[src1] = emissions.data[src2]
-    tensor1[0, :] = tensor2[-1, :] = tensor0[0, :]
+    score1[src1] = emissions.data[src]
+    # score2[src2] = emissions.data[src]
+    chart1[0, :] = chart2[-1, :] = score1[0, :]
 
     for w in range(1, token_size):
-        tensor1[w, :-w] = tensor2[-w - 1, w:] = semiring.mul(
-            semiring.sum(semiring.mul(tensor1[:w, :-w], tensor2[-w:, w:]), dim=0),
-            tensor0[w, :-w],
+        chart1[w, :-w] = chart2[-w - 1, w:] = semiring.mul(
+            semiring.sum(semiring.mul(chart1[:w, :-w], chart2[-w:, w:]), dim=0),
+            score1[w, :-w],
         )
 
-    return tensor1[tgt]
+    return chart1[tgt]
 
 
 class CkyDistribution(StructuredDistribution):
