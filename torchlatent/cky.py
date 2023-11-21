@@ -18,37 +18,31 @@ def cky_scores(emissions: C, targets: Union[C, D, P], semiring: Type[Semiring]) 
 
 
 def cky_partitions(emissions: C, semiring: Type[Semiring]) -> Tensor:
-    batch_ptr, token_ptr = emissions.ptr()
-    z_ptr, x_ptr = emissions._replace(token_sizes=token_ptr + 1).ptr()
-    y_ptr = token_ptr[z_ptr]
+    b, t, _, *size = emissions.data.size()
+    c, n, m, *stride = emissions.data.stride()
 
-    _, token_size, *_ = emissions.size()
-    cache_size, = batch_ptr.size()
+    chart = torch.full_like(emissions.data, fill_value=Log.zero, requires_grad=False)
 
-    w_ptr = y_ptr - x_ptr
-    src1 = w_ptr, z_ptr - w_ptr
-    # src2 = -w_ptr - 1, z_ptr
+    def diag() -> Tensor:
+        return emissions.data.diagonal(offset=w, dim1=1, dim2=2)
 
-    src = batch_ptr[z_ptr], x_ptr, y_ptr
-    tgt = emissions.token_sizes - 1, emissions.offsets()
+    def diag_scatter(tensor: Tensor) -> None:
+        chart.diagonal(offset=w, dim1=1, dim2=2)[::] = tensor
 
-    size = (token_size, cache_size, *emissions.data.size()[3:])
-    score1 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
-    # score2 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
-    chart1 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
-    chart2 = emissions.data.new_full(size, fill_value=semiring.zero, requires_grad=False)
+    def left() -> Tensor:
+        return chart.as_strided(size=(b, t - w, w, *size), stride=(c, n + m, m, *stride))
 
-    score1[src1] = emissions.data[src]
-    # score2[src2] = emissions.data[src]
-    chart1[0, :] = chart2[-1, :] = score1[0, :]
+    def right() -> Tensor:
+        return chart[:, 1:, w:].as_strided(size=(b, t - w, w, *size), stride=(c, n + m, n, *stride))
 
-    for w in range(1, token_size):
-        chart1[w, :-w] = chart2[-w - 1, w:] = semiring.mul(
-            semiring.sum(semiring.mul(chart1[:w, :-w], chart2[-w:, w:]), dim=0),
-            score1[w, :-w],
-        )
+    w = 0
+    diag_scatter(diag())
 
-    return chart1[tgt]
+    for w in range(1, t):
+        diag_scatter(semiring.mul(semiring.sum(semiring.mul(left(), right()), dim=2), diag()))
+
+    index = torch.arange(b, dtype=torch.long, device=chart.device)
+    return chart[index, 0, emissions.token_sizes - 1]
 
 
 class CkyDistribution(StructuredDistribution):
