@@ -1,10 +1,10 @@
 import torch
 from hypothesis import given, strategies as st
 from torchcrf import CRF
-from torchnyan import assert_close, assert_grad_close, assert_sequence_close, BATCH_SIZE, device, sizes, TOKEN_SIZE
+from torchnyan import BATCH_SIZE, TOKEN_SIZE, assert_close, assert_grad_close, assert_sequence_close, device, sizes
 from torchrua import C, D, P
 
-from torchlatent.crf import crf_partitions, crf_scores, CrfDecoder
+from torchlatent.crf import CrfDecoder, crf_partitions, crf_scores
 from torchlatent.semiring import Log
 
 

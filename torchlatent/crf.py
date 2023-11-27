@@ -1,7 +1,7 @@
 from typing import Tuple, Type, Union
 
 import torch
-from torch import nn, Tensor
+from torch import Tensor, nn
 from torch.distributions.utils import lazy_property
 from torch.nn import init
 from torchrua import C, D, P

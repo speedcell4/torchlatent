@@ -3,7 +3,7 @@ from typing import Union
 
 import torch
 import torch.autograd
-from torch import nn, Tensor
+from torch import Tensor, nn
 from torch.distributions.utils import lazy_property
 from torchrua import C, D, P
 
