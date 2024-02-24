@@ -18,6 +18,10 @@ def cky_scores(emissions: C, targets: Union[C, D, P], semiring: Type[Semiring]) 
 
 
 def cky_partitions(emissions: C, semiring: Type[Semiring]) -> Tensor:
+    if emissions.data.dim() == 4:
+        data = semiring.sum(emissions.data, dim=-1)
+        emissions = emissions._replace(data=data)
+
     chart = torch.full_like(emissions.data, fill_value=semiring.zero, requires_grad=False)
     b, t, _, *size = chart.size()
     c, n, m, *stride = chart.stride()
@@ -58,14 +62,14 @@ class CkyDistribution(StructuredDistribution):
     @lazy_property
     def log_partitions(self) -> Tensor:
         return cky_partitions(
-            emissions=self.emissions._replace(data=Log.sum(self.emissions.data, dim=-1)),
+            emissions=self.emissions,
             semiring=Log,
         )
 
     @lazy_property
     def max(self) -> Tensor:
         return cky_partitions(
-            emissions=self.emissions._replace(data=Max.sum(self.emissions.data, dim=-1)),
+            emissions=self.emissions,
             semiring=Max,
         )
 
