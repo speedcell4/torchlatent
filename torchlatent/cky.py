@@ -17,35 +17,46 @@ def cky_scores(emissions: C, targets: Union[C, D, P], semiring: Type[Semiring]) 
     return semiring.segment_prod(emissions, token_sizes)
 
 
+def diag(tensor: Tensor, offset: int) -> Tensor:
+    return tensor.diagonal(offset=offset, dim1=1, dim2=2)
+
+
+def diag_scatter(chart: Tensor, score: Tensor, offset: int) -> None:
+    chart.diagonal(offset=offset, dim1=1, dim2=2)[::] = score
+
+
+def left(chart: Tensor, offset: int) -> Tensor:
+    b, t, _, *size = chart.size()
+    c, n, m, *stride = chart.stride()
+    return chart.as_strided(
+        size=(b, t - offset, offset, *size),
+        stride=(c, n + m, m, *stride),
+    )
+
+
+def right(chart: Tensor, offset: int) -> Tensor:
+    b, t, _, *size = chart.size()
+    c, n, m, *stride = chart.stride()
+    return chart[:, 1:, offset:].as_strided(
+        size=(b, t - offset, offset, *size),
+        stride=(c, n + m, n, *stride),
+    )
+
+
 def cky_partitions(emissions: C, semiring: Type[Semiring]) -> Tensor:
     if emissions.data.dim() == 4:
         data = semiring.sum(emissions.data, dim=-1)
         emissions = emissions._replace(data=data)
 
     chart = torch.full_like(emissions.data, fill_value=semiring.zero, requires_grad=False)
-    b, t, _, *size = chart.size()
-    c, n, m, *stride = chart.stride()
 
-    def diag(offset: int) -> Tensor:
-        return emissions.data.diagonal(offset=offset, dim1=1, dim2=2)
+    diag_scatter(chart, diag(emissions.data, offset=0), offset=0)
 
-    def diag_scatter(tensor: Tensor, offset: int) -> None:
-        chart.diagonal(offset=offset, dim1=1, dim2=2)[::] = tensor
+    for w in range(1, chart.size()[1]):
+        score = semiring.sum(semiring.mul(left(chart, offset=w), right(chart, offset=w)), dim=2)
+        diag_scatter(chart, semiring.mul(score, diag(emissions.data, offset=w)), offset=w)
 
-    def left(offset: int) -> Tensor:
-        return chart.as_strided(size=(b, t - offset, offset, *size), stride=(c, n + m, m, *stride))
-
-    def right(offset: int) -> Tensor:
-        return chart[:, 1:, offset:].as_strided(size=(b, t - offset, offset, *size), stride=(c, n + m, n, *stride))
-
-    score = diag(offset=0)
-    diag_scatter(score, offset=0)
-
-    for w in range(1, t):
-        score = semiring.sum(semiring.mul(left(offset=w), right(offset=w)), dim=2)
-        diag_scatter(semiring.mul(score, diag(offset=w)), offset=w)
-
-    index = torch.arange(b, dtype=torch.long, device=chart.device)
+    index = torch.arange(chart.size()[0], dtype=torch.long, device=chart.device)
     return chart[index, 0, emissions.token_sizes - 1]
 
 
