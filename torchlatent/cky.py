@@ -1,4 +1,4 @@
-from typing import Type, Union
+from typing import Tuple, Type, Union
 
 import torch
 from torch import Tensor
@@ -44,10 +44,6 @@ def right(chart: Tensor, offset: int) -> Tensor:
 
 
 def cky_partitions(emissions: C, semiring: Type[Semiring]) -> Tensor:
-    if emissions.data.dim() == 4:
-        data = semiring.sum(emissions.data, dim=-1)
-        emissions = emissions._replace(data=data)
-
     chart = torch.full_like(emissions.data, fill_value=semiring.zero, requires_grad=False)
 
     diag_scatter(chart, diag(emissions.data, offset=0), offset=0)
@@ -58,6 +54,19 @@ def cky_partitions(emissions: C, semiring: Type[Semiring]) -> Tensor:
 
     index = torch.arange(chart.size()[0], dtype=torch.long, device=chart.device)
     return chart[index, 0, emissions.token_sizes - 1]
+
+
+def masked_select(mask: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+    _, t, _, n = mask.size()
+
+    index = torch.arange(t, device=mask.device)
+    x = torch.masked_select(index[None, :, None, None], mask=mask)
+    y = torch.masked_select(index[None, None, :, None], mask=mask)
+
+    index = torch.arange(n, device=mask.device)
+    z = torch.masked_select(index[None, None, None, :], mask=mask)
+
+    return x, y, z
 
 
 class CkyDistribution(StructuredDistribution):
@@ -73,28 +82,21 @@ class CkyDistribution(StructuredDistribution):
     @lazy_property
     def log_partitions(self) -> Tensor:
         return cky_partitions(
-            emissions=self.emissions,
+            emissions=self.emissions._replace(data=Log.sum(self.emissions.data, dim=-1)),
             semiring=Log,
         )
 
     @lazy_property
     def max(self) -> Tensor:
         return cky_partitions(
-            emissions=self.emissions,
+            emissions=self.emissions._replace(data=Max.sum(self.emissions.data, dim=-1)),
             semiring=Max,
         )
 
     @lazy_property
     def argmax(self) -> C:
-        mask = super(CkyDistribution, self).argmax > 0
-        _, t, _, n = mask.size()
-
-        index = torch.arange(t, device=mask.device)
-        x = torch.masked_select(index[None, :, None, None], mask=mask)
-        y = torch.masked_select(index[None, None, :, None], mask=mask)
-
-        index = torch.arange(n, device=mask.device)
-        z = torch.masked_select(index[None, None, None, :], mask=mask)
+        argmax = super(CkyDistribution, self).argmax
+        x, y, z = masked_select(argmax > 0)
 
         return C(
             data=torch.stack([x, y, z], dim=-1),
