@@ -1,10 +1,16 @@
-from setuptools import setup, find_packages
+from pathlib import Path
+
+from setuptools import find_packages, setup
 
 name = 'torchlatent'
 
+root_dir = Path(__file__).parent.resolve()
+with (root_dir / 'requirements.txt').open(mode='r', encoding='utf-8') as fp:
+    install_requires = [install_require.strip() for install_require in fp]
+
 setup(
     name=name,
-    version='0.4.2',
+    version='0.4.3',
     packages=[package for package in find_packages() if package.startswith(name)],
     url='https://github.com/speedcell4/torchlatent',
     license='MIT',
@@ -12,16 +18,5 @@ setup(
     author_email='speedcell4@gmail.com',
     description='High Performance Structured Prediction in PyTorch',
     python_requires='>=3.8',
-    install_requires=[
-        'numpy',
-        'torchrua>=0.4.0',
-    ],
-    extras_require={
-        'dev': [
-            'einops',
-            'pytest',
-            'hypothesis',
-            'pytorch-crf',
-        ],
-    }
+    install_requires=install_requires,
 )

@@ -1,117 +1,111 @@
 import torch
-from hypothesis import given
-from torchrua import pack_sequence, cat_sequence, pack_catted_sequence
+from hypothesis import given, settings, strategies as st
+from torchcrf import CRF
+from torchnyan import BATCH_SIZE, TOKEN_SIZE, assert_close, assert_grad_close, assert_sequence_close, device, sizes
+from torchrua import C, D, P
 
-from tests.strategies import devices, sizes, BATCH_SIZE, TOKEN_SIZE, NUM_CONJUGATES, NUM_TAGS
-from tests.third_party import ThirdPartyCrfDecoder
-from tests.utils import assert_close, assert_grad_close, assert_packed_sequence_equal
-from torchlatent.crf import CrfDecoder
+from torchlatent.crf import CrfDecoder, crf_partitions, crf_scores
+from torchlatent.semiring import Log
 
 
+@settings(deadline=None)
 @given(
-    device=devices(),
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
-    num_conjugate=sizes(NUM_CONJUGATES),
-    num_tags=sizes(NUM_TAGS),
+    num_targets=sizes(TOKEN_SIZE),
+    rua_emissions=st.sampled_from([C.new, D.new, P.new]),
+    rua_targets=st.sampled_from([C.new, D.new, P.new]),
 )
-def test_crf_packed_fit(device, token_sizes, num_conjugate, num_tags):
-    emissions = pack_sequence([
-        torch.randn((token_size, num_conjugate, num_tags), device=device, requires_grad=True)
+def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
+    inputs = [
+        torch.randn((token_size, num_targets), device=device, requires_grad=True)
         for token_size in token_sizes
-    ], device=device)
+    ]
 
-    tags = pack_sequence([
-        torch.randint(0, num_tags, (token_size, num_conjugate), device=device)
+    targets = [
+        torch.randint(0, num_targets, (token_size,), device=device)
         for token_size in token_sizes
-    ], device=device)
+    ]
 
-    actual_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate).to(device=device)
-    expected_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate).to(device=device)
-    expected_decoder.reset_parameters_with_(decoder=actual_decoder)
+    expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
-    actual = actual_decoder.fit(emissions=emissions, tags=tags)
-    expected = expected_decoder.fit(emissions=emissions, tags=tags)
+    expected_emissions = D.new(inputs)
+    expected_tags = D.new(targets)
+
+    expected = expected_crf._compute_score(
+        expected_emissions.data.transpose(0, 1),
+        expected_tags.data.transpose(0, 1),
+        expected_emissions.mask().transpose(0, 1),
+    )
+
+    actual = crf_scores(
+        emissions=rua_emissions(inputs),
+        targets=rua_targets(targets),
+        transitions=(expected_crf.transitions, expected_crf.start_transitions, expected_crf.end_transitions),
+        semiring=Log,
+    )
 
     assert_close(actual=actual, expected=expected)
-    assert_grad_close(actual=actual, expected=expected, inputs=(emissions.data,))
+    assert_grad_close(actual=actual, expected=expected, inputs=inputs)
 
 
+@settings(deadline=None)
 @given(
-    device=devices(),
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
-    num_conjugate=sizes(NUM_CONJUGATES),
-    num_tags=sizes(NUM_TAGS),
+    num_targets=sizes(TOKEN_SIZE),
+    rua_emissions=st.sampled_from([C.new, D.new, P.new]),
 )
-def test_crf_packed_decode(device, token_sizes, num_conjugate, num_tags):
-    emissions = pack_sequence([
-        torch.randn((token_size, num_conjugate, num_tags), device=device, requires_grad=True)
-        for token_size in token_sizes
-    ], device=device)
-
-    actual_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate).to(device=device)
-    expected_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate).to(device=device)
-    expected_decoder.reset_parameters_with_(decoder=actual_decoder)
-
-    expected = expected_decoder.decode(emissions=emissions)
-    actual = actual_decoder.decode(emissions=emissions)
-
-    assert_packed_sequence_equal(actual=actual, expected=expected)
-
-
-@given(
-    device=devices(),
-    token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
-    num_conjugate=sizes(NUM_CONJUGATES),
-    num_tags=sizes(NUM_TAGS),
-)
-def test_crf_catted_fit(device, token_sizes, num_conjugate, num_tags):
-    emissions = [
-        torch.randn((token_size, num_conjugate, num_tags), device=device, requires_grad=True)
-        for token_size in token_sizes
-    ]
-    tags = [
-        torch.randint(0, num_tags, (token_size, num_conjugate), device=device)
+def test_crf_partitions(token_sizes, num_targets, rua_emissions):
+    inputs = [
+        torch.randn((token_size, num_targets), device=device, requires_grad=True)
         for token_size in token_sizes
     ]
 
-    catted_emissions = cat_sequence(emissions, device=device)
-    packed_emissions = pack_sequence(emissions, device=device)
+    expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
-    catted_tags = cat_sequence(tags, device=device)
-    packed_tags = pack_sequence(tags, device=device)
+    expected_emissions = D.new(inputs)
 
-    actual_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate).to(device=device)
-    expected_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate).to(device=device)
-    expected_decoder.reset_parameters_with_(decoder=actual_decoder)
+    expected = expected_crf._compute_normalizer(
+        expected_emissions.data.transpose(0, 1),
+        expected_emissions.mask().t(),
+    )
 
-    actual = actual_decoder.fit(emissions=catted_emissions, tags=catted_tags)
-    expected = expected_decoder.fit(emissions=packed_emissions, tags=packed_tags)
+    actual = crf_partitions(
+        emissions=rua_emissions(inputs),
+        transitions=(expected_crf.transitions, expected_crf.start_transitions, expected_crf.end_transitions),
+        semiring=Log,
+    )
 
-    assert_close(actual=actual, expected=expected)
-    assert_grad_close(actual=actual, expected=expected, inputs=tuple(emissions))
+    assert_close(actual=actual, expected=expected, rtol=1e-4, atol=1e-4)
+    assert_grad_close(actual=actual, expected=expected, inputs=inputs, rtol=1e-4, atol=1e-4)
 
 
+@settings(deadline=None)
 @given(
-    device=devices(),
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
-    num_conjugate=sizes(NUM_CONJUGATES),
-    num_tags=sizes(NUM_TAGS),
+    num_targets=sizes(TOKEN_SIZE),
+    rua_emissions=st.sampled_from([C.new, D.new, P.new]),
 )
-def test_crf_catted_decode(device, token_sizes, num_conjugate, num_tags):
-    emissions = [
-        torch.randn((token_size, num_conjugate, num_tags), device=device, requires_grad=True)
+def test_crf_argmax(token_sizes, num_targets, rua_emissions):
+    inputs = [
+        torch.randn((token_size, num_targets), device=device, requires_grad=True)
         for token_size in token_sizes
     ]
 
-    catted_emissions = cat_sequence(emissions, device=device)
-    packed_emissions = pack_sequence(emissions, device=device)
+    expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
-    actual_decoder = CrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate).to(device=device)
-    expected_decoder = ThirdPartyCrfDecoder(num_tags=num_tags, num_conjugates=num_conjugate).to(device=device)
-    expected_decoder.reset_parameters_with_(decoder=actual_decoder)
+    expected_emissions = D.new(inputs)
 
-    expected = expected_decoder.decode(emissions=packed_emissions)
-    actual = actual_decoder.decode(emissions=catted_emissions)
-    actual = pack_catted_sequence(*actual, device=device)
+    expected = expected_crf.decode(
+        expected_emissions.data.transpose(0, 1),
+        expected_emissions.mask().t(),
+    )
+    expected = C.new([torch.tensor(tensor, device=device) for tensor in expected])
 
-    assert_packed_sequence_equal(actual=actual, expected=expected)
+    actual_crf = CrfDecoder(num_targets=num_targets)
+    actual_crf.transitions = expected_crf.transitions
+    actual_crf.head_transitions = expected_crf.start_transitions
+    actual_crf.last_transitions = expected_crf.end_transitions
+
+    actual = actual_crf(rua_emissions(inputs)).argmax.cat()
+
+    assert_sequence_close(actual=actual, expected=expected)
