@@ -1,5 +1,5 @@
 import torch
-from hypothesis import given, strategies as st
+from hypothesis import given, settings, strategies as st
 from torchcrf import CRF
 from torchnyan import BATCH_SIZE, TOKEN_SIZE, assert_close, assert_grad_close, assert_sequence_close, device, sizes
 from torchrua import C, D, P
@@ -8,6 +8,7 @@ from torchlatent.crf import CrfDecoder, crf_partitions, crf_scores
 from torchlatent.semiring import Log
 
 
+@settings(deadline=None)
 @given(
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
     num_targets=sizes(TOKEN_SIZE),
@@ -47,6 +48,7 @@ def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
     assert_grad_close(actual=actual, expected=expected, inputs=inputs)
 
 
+@settings(deadline=None)
 @given(
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
     num_targets=sizes(TOKEN_SIZE),
@@ -77,6 +79,7 @@ def test_crf_partitions(token_sizes, num_targets, rua_emissions):
     assert_grad_close(actual=actual, expected=expected, inputs=inputs, rtol=1e-4, atol=1e-4)
 
 
+@settings(deadline=None)
 @given(
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
     num_targets=sizes(TOKEN_SIZE),

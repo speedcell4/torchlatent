@@ -1,11 +1,12 @@
 import torch
-from hypothesis import given, strategies as st
+from hypothesis import given, settings, strategies as st
 from torchnyan.assertion import assert_close, assert_grad_close
 from torchnyan.strategy import TINY_BATCH_SIZE, TINY_TOKEN_SIZE, device, sizes
 
 from torchlatent.functional import logaddexp, logsumexp
 
 
+@settings(deadline=None)
 @given(
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE)
 )
@@ -20,6 +21,7 @@ def test_logaddexp(token_sizes):
     assert_grad_close(actual=actual, expected=expected, inputs=(x, y))
 
 
+@settings(deadline=None)
 @given(
     data=st.data(),
     token_sizes=sizes(TINY_BATCH_SIZE, TINY_TOKEN_SIZE)

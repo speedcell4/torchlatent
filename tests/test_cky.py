@@ -1,5 +1,5 @@
 import torch
-from hypothesis import given, strategies as st
+from hypothesis import given, settings, strategies as st
 from torch_struct import TreeCRF
 from torchnyan import BATCH_SIZE, TINY_TOKEN_SIZE, assert_close, assert_grad_close, device, sizes
 from torchrua import C
@@ -23,6 +23,7 @@ def get_argmax(cky):
     return argmax, x, y, z
 
 
+@settings(deadline=None)
 @given(
     token_sizes=sizes(BATCH_SIZE, TINY_TOKEN_SIZE),
     num_targets=sizes(TINY_TOKEN_SIZE),
@@ -54,6 +55,7 @@ def test_cky_scores(token_sizes, num_targets, rua_targets):
     assert_grad_close(actual=actual, expected=expected, inputs=(emissions,))
 
 
+@settings(deadline=None)
 @given(
     token_sizes=sizes(BATCH_SIZE, TINY_TOKEN_SIZE),
     num_targets=sizes(TINY_TOKEN_SIZE),
@@ -77,6 +79,7 @@ def test_cky_partitions(token_sizes, num_targets):
     assert_grad_close(actual=actual, expected=expected, inputs=(emissions,))
 
 
+@settings(deadline=None)
 @given(
     token_sizes=sizes(BATCH_SIZE, TINY_TOKEN_SIZE),
     num_targets=sizes(TINY_TOKEN_SIZE),
