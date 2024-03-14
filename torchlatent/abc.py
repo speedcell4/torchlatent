@@ -9,9 +9,9 @@ from torchrua import C, D, P
 
 
 class StructuredDistribution(object, metaclass=ABCMeta):
-    def __init__(self, emissions: Union[C, D, P]) -> None:
+    def __init__(self, logits: Union[C, D, P]) -> None:
         super(StructuredDistribution, self).__init__()
-        self.emissions = emissions
+        self.logits = logits
 
     def log_scores(self, targets: Union[C, D, P]) -> Tensor:
         raise NotImplementedError
@@ -26,7 +26,7 @@ class StructuredDistribution(object, metaclass=ABCMeta):
     @lazy_property
     def marginals(self) -> Tensor:
         grad, = torch.autograd.grad(
-            self.log_partitions, self.emissions.data, torch.ones_like(self.log_partitions),
+            self.log_partitions, self.logits.data, torch.ones_like(self.log_partitions),
             create_graph=True, retain_graph=True, only_inputs=True, allow_unused=True,
 
         )
@@ -39,7 +39,7 @@ class StructuredDistribution(object, metaclass=ABCMeta):
     @lazy_property
     def argmax(self) -> Tensor:
         grad, = torch.autograd.grad(
-            self.max, self.emissions.data, torch.ones_like(self.max),
+            self.max, self.logits.data, torch.ones_like(self.max),
             create_graph=False, retain_graph=False, only_inputs=True, allow_unused=True,
         )
         return grad
@@ -56,5 +56,5 @@ class StructuredDecoder(nn.Module):
     def extra_repr(self) -> str:
         return f'num_targets={self.num_targets}'
 
-    def forward(self, emissions: Union[C, D, P]) -> StructuredDistribution:
+    def forward(self, logits: Union[C, D, P]) -> StructuredDistribution:
         raise NotImplementedError

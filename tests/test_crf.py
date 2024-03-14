@@ -12,10 +12,10 @@ from torchlatent.semiring import Log
 @given(
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
     num_targets=sizes(TOKEN_SIZE),
-    rua_emissions=st.sampled_from([C.new, D.new, P.new]),
+    rua_logits=st.sampled_from([C.new, D.new, P.new]),
     rua_targets=st.sampled_from([C.new, D.new, P.new]),
 )
-def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
+def test_crf_scores(token_sizes, num_targets, rua_logits, rua_targets):
     inputs = [
         torch.randn((token_size, num_targets), device=device, requires_grad=True)
         for token_size in token_sizes
@@ -28,19 +28,19 @@ def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
 
     expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
-    expected_emissions = D.new(inputs)
+    expected_logits = D.new(inputs)
     expected_tags = D.new(targets)
 
     expected = expected_crf._compute_score(
-        expected_emissions.data.transpose(0, 1),
+        expected_logits.data.transpose(0, 1),
         expected_tags.data.transpose(0, 1),
-        expected_emissions.mask().transpose(0, 1),
+        expected_logits.mask().transpose(0, 1),
     )
 
     actual = crf_scores(
-        emissions=rua_emissions(inputs),
+        logits=rua_logits(inputs),
         targets=rua_targets(targets),
-        transitions=(expected_crf.transitions, expected_crf.start_transitions, expected_crf.end_transitions),
+        bias=(expected_crf.transitions, expected_crf.start_transitions, expected_crf.end_transitions),
         semiring=Log,
     )
 
@@ -52,9 +52,9 @@ def test_crf_scores(token_sizes, num_targets, rua_emissions, rua_targets):
 @given(
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
     num_targets=sizes(TOKEN_SIZE),
-    rua_emissions=st.sampled_from([C.new, D.new, P.new]),
+    rua_logits=st.sampled_from([C.new, D.new, P.new]),
 )
-def test_crf_partitions(token_sizes, num_targets, rua_emissions):
+def test_crf_partitions(token_sizes, num_targets, rua_logits):
     inputs = [
         torch.randn((token_size, num_targets), device=device, requires_grad=True)
         for token_size in token_sizes
@@ -62,16 +62,16 @@ def test_crf_partitions(token_sizes, num_targets, rua_emissions):
 
     expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
-    expected_emissions = D.new(inputs)
+    expected_logits = D.new(inputs)
 
     expected = expected_crf._compute_normalizer(
-        expected_emissions.data.transpose(0, 1),
-        expected_emissions.mask().t(),
+        expected_logits.data.transpose(0, 1),
+        expected_logits.mask().t(),
     )
 
     actual = crf_partitions(
-        emissions=rua_emissions(inputs),
-        transitions=(expected_crf.transitions, expected_crf.start_transitions, expected_crf.end_transitions),
+        logits=rua_logits(inputs),
+        bias=(expected_crf.transitions, expected_crf.start_transitions, expected_crf.end_transitions),
         semiring=Log,
     )
 
@@ -83,9 +83,9 @@ def test_crf_partitions(token_sizes, num_targets, rua_emissions):
 @given(
     token_sizes=sizes(BATCH_SIZE, TOKEN_SIZE),
     num_targets=sizes(TOKEN_SIZE),
-    rua_emissions=st.sampled_from([C.new, D.new, P.new]),
+    rua_logits=st.sampled_from([C.new, D.new, P.new]),
 )
-def test_crf_argmax(token_sizes, num_targets, rua_emissions):
+def test_crf_argmax(token_sizes, num_targets, rua_logits):
     inputs = [
         torch.randn((token_size, num_targets), device=device, requires_grad=True)
         for token_size in token_sizes
@@ -93,19 +93,19 @@ def test_crf_argmax(token_sizes, num_targets, rua_emissions):
 
     expected_crf = CRF(num_tags=num_targets, batch_first=False).to(device=device)
 
-    expected_emissions = D.new(inputs)
+    expected_logits = D.new(inputs)
 
     expected = expected_crf.decode(
-        expected_emissions.data.transpose(0, 1),
-        expected_emissions.mask().t(),
+        expected_logits.data.transpose(0, 1),
+        expected_logits.mask().t(),
     )
     expected = C.new([torch.tensor(tensor, device=device) for tensor in expected])
 
     actual_crf = CrfDecoder(num_targets=num_targets)
-    actual_crf.transitions = expected_crf.transitions
-    actual_crf.head_transitions = expected_crf.start_transitions
-    actual_crf.last_transitions = expected_crf.end_transitions
+    actual_crf.bias = expected_crf.transitions
+    actual_crf.head_bias = expected_crf.start_transitions
+    actual_crf.last_bias = expected_crf.end_transitions
 
-    actual = actual_crf(rua_emissions(inputs)).argmax.cat()
+    actual = actual_crf(rua_logits(inputs)).argmax.cat()
 
     assert_sequence_close(actual=actual, expected=expected)

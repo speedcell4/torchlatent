@@ -12,102 +12,102 @@ from torchlatent.semiring import Log, Max, Semiring
 T = Tuple[Tensor, Tensor, Tensor]
 
 
-def crf_scores(emissions: Union[C, D, P], targets: Union[C, D, P], transitions: T, semiring: Type[Semiring]) -> Tensor:
-    transitions, head_transitions, last_transitions = transitions
+def crf_scores(logits: Union[C, D, P], targets: Union[C, D, P], bias: T, semiring: Type[Semiring]) -> Tensor:
+    bias, head_bias, last_bias = bias
 
     targets = _, token_sizes = targets.cat()
-    head_transitions = targets.head().rua(head_transitions)
-    last_transitions = targets.last().rua(last_transitions)
-    transitions = targets.data.roll(1).rua(transitions, targets)
+    head_bias = targets.head().rua(head_bias)
+    last_bias = targets.last().rua(last_bias)
+    bias = targets.data.roll(1).rua(bias, targets)
 
-    emissions, _ = emissions.idx().cat().rua(emissions, targets)
-    emissions = semiring.segment_prod(emissions, sizes=token_sizes)
+    logits, _ = logits.idx().cat().rua(logits, targets)
+    logits = semiring.segment_prod(logits, sizes=token_sizes)
 
     token_sizes = torch.stack([torch.ones_like(token_sizes), token_sizes - 1], dim=-1)
-    transitions = semiring.segment_prod(transitions, sizes=token_sizes.view(-1))[1::2]
+    bias = semiring.segment_prod(bias, sizes=token_sizes.view(-1))[1::2]
 
     return semiring.mul(
-        semiring.mul(head_transitions, last_transitions),
-        semiring.mul(emissions, transitions),
+        semiring.mul(head_bias, last_bias),
+        semiring.mul(logits, bias),
     )
 
 
-def crf_partitions(emissions: Union[C, D, P], transitions: T, semiring: Type[Semiring]) -> Tensor:
-    transitions, head_transitions, last_transitions = transitions
+def crf_partitions(logits: Union[C, D, P], bias: T, semiring: Type[Semiring]) -> Tensor:
+    bias, head_bias, last_bias = bias
 
-    emissions = emissions.pack()
-    last_indices = emissions.idx().last()
-    emissions, batch_sizes, _, _ = emissions
+    logits = logits.pack()
+    last_indices = logits.idx().last()
+    logits, batch_sizes, _, _ = logits
 
     _, *batch_sizes = sections = batch_sizes.detach().cpu().tolist()
-    emission, *emissions = torch.split(emissions, sections, dim=0)
+    emission, *logits = torch.split(logits, sections, dim=0)
 
-    charts = [semiring.mul(head_transitions, emission)]
-    for emission, batch_size in zip(emissions, batch_sizes):
+    charts = [semiring.mul(head_bias, emission)]
+    for emission, batch_size in zip(logits, batch_sizes):
         charts.append(semiring.mul(
-            semiring.bmm(charts[-1][:batch_size], transitions),
+            semiring.bmm(charts[-1][:batch_size], bias),
             emission,
         ))
 
     emission = torch.cat(charts, dim=0)[last_indices]
-    return semiring.sum(semiring.mul(emission, last_transitions), dim=-1)
+    return semiring.sum(semiring.mul(emission, last_bias), dim=-1)
 
 
 class CrfDistribution(StructuredDistribution):
-    def __init__(self, emissions: Union[C, D, P], transitions: T) -> None:
-        super(CrfDistribution, self).__init__(emissions=emissions)
-        self.transitions = transitions
+    def __init__(self, logits: Union[C, D, P], bias: T) -> None:
+        super(CrfDistribution, self).__init__(logits=logits)
+        self.bias = bias
 
     def log_scores(self, targets: Union[C, D, P]) -> Tensor:
         return crf_scores(
-            emissions=self.emissions, targets=targets,
-            transitions=self.transitions,
+            logits=self.logits, targets=targets,
+            bias=self.bias,
             semiring=Log,
         )
 
     @lazy_property
     def log_partitions(self) -> Tensor:
         return crf_partitions(
-            emissions=self.emissions,
-            transitions=self.transitions,
+            logits=self.logits,
+            bias=self.bias,
             semiring=Log,
         )
 
     @lazy_property
     def max(self) -> Tensor:
         return crf_partitions(
-            emissions=self.emissions,
-            transitions=self.transitions,
+            logits=self.logits,
+            bias=self.bias,
             semiring=Max,
         )
 
     @lazy_property
     def argmax(self) -> Union[C, D, P]:
         argmax = super(CrfDistribution, self).argmax.argmax(dim=-1)
-        return self.emissions._replace(data=argmax)
+        return self.logits._replace(data=argmax)
 
 
 class CrfDecoder(StructuredDecoder):
     def __init__(self, *, num_targets: int) -> None:
         super(CrfDecoder, self).__init__(num_targets=num_targets)
 
-        self.transitions = nn.Parameter(torch.empty((num_targets, num_targets)))
-        self.head_transitions = nn.Parameter(torch.empty((num_targets,)))
-        self.last_transitions = nn.Parameter(torch.empty((num_targets,)))
+        self.bias = nn.Parameter(torch.empty((num_targets, num_targets)))
+        self.head_bias = nn.Parameter(torch.empty((num_targets,)))
+        self.last_bias = nn.Parameter(torch.empty((num_targets,)))
 
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        init.zeros_(self.transitions)
-        init.zeros_(self.head_transitions)
-        init.zeros_(self.last_transitions)
+        init.zeros_(self.bias)
+        init.zeros_(self.head_bias)
+        init.zeros_(self.last_bias)
 
-    def forward(self, emissions: Union[C, D, P]) -> CrfDistribution:
+    def forward(self, logits: Union[C, D, P]) -> CrfDistribution:
         return CrfDistribution(
-            emissions=emissions,
-            transitions=(
-                self.transitions,
-                self.head_transitions,
-                self.last_transitions,
+            logits=logits,
+            bias=(
+                self.bias,
+                self.head_bias,
+                self.last_bias,
             ),
         )
