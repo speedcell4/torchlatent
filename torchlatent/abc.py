@@ -1,22 +1,22 @@
 from abc import ABCMeta
-from typing import Union
 
 import torch
 import torch.autograd
 from torch import Tensor, nn
 from torch.distributions.utils import lazy_property
-from torchrua import C, D, P
+
+from torchrua import Z
 
 
 class StructuredDistribution(object, metaclass=ABCMeta):
-    def __init__(self, logits: Union[C, D, P]) -> None:
+    def __init__(self, logits: Z) -> None:
         super(StructuredDistribution, self).__init__()
         self.logits = logits
 
-    def log_scores(self, targets: Union[C, D, P]) -> Tensor:
+    def log_scores(self, targets: Z) -> Tensor:
         raise NotImplementedError
 
-    def log_probs(self, targets: Union[C, D, P]) -> Tensor:
+    def log_probs(self, targets: Z) -> Tensor:
         return self.log_scores(targets=targets) - self.log_partitions
 
     @lazy_property
@@ -56,5 +56,5 @@ class StructuredDecoder(nn.Module):
     def extra_repr(self) -> str:
         return f'num_targets={self.num_targets}'
 
-    def forward(self, logits: Union[C, D, P]) -> StructuredDistribution:
+    def forward(self, logits: Z) -> StructuredDistribution:
         raise NotImplementedError

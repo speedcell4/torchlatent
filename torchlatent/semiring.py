@@ -1,8 +1,8 @@
 import torch
 from torch import Tensor
-from torchrua import segment_logsumexp, segment_max, segment_prod, segment_sum
 
 from torchlatent.functional import logaddexp, logsumexp
+from torchrua import segment_logsumexp, segment_max, segment_prod, segment_sum
 
 __all__ = [
     'Semiring', 'ExceptionSemiring',

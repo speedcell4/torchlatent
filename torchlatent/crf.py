@@ -1,26 +1,27 @@
-from typing import Tuple, Type, Union
+from typing import Tuple, Type
 
 import torch
 from torch import Tensor, nn
 from torch.distributions.utils import lazy_property
 from torch.nn import init
-from torchrua import C, D, P
 
 from torchlatent.abc import StructuredDecoder, StructuredDistribution
 from torchlatent.semiring import Log, Max, Semiring
+from torchrua import Z
 
 T = Tuple[Tensor, Tensor, Tensor]
 
 
-def crf_scores(logits: Union[C, D, P], targets: Union[C, D, P], bias: T, semiring: Type[Semiring]) -> Tensor:
+def crf_scores(logits: Z, targets: Z, bias: T, semiring: Type[Semiring]) -> Tensor:
     bias, head_bias, last_bias = bias
 
     targets = _, token_sizes = targets.cat()
-    head_bias = targets.head().rua(head_bias)
-    last_bias = targets.last().rua(last_bias)
-    bias = targets.data.roll(1).rua(bias, targets)
+    head_bias = head_bias[targets.head()]
+    last_bias = last_bias[targets.last()]
+    bias = bias[targets.data.roll(1), targets.data]
 
-    logits, _ = logits.idx().cat().rua(logits, targets)
+    batch_ptr, token_ptr = targets.ptr()
+    logits = logits.left().data[batch_ptr, token_ptr, targets.data]
     logits = semiring.segment_prod(logits, sizes=token_sizes)
 
     token_sizes = torch.stack([torch.ones_like(token_sizes), token_sizes - 1], dim=-1)
@@ -32,7 +33,7 @@ def crf_scores(logits: Union[C, D, P], targets: Union[C, D, P], bias: T, semirin
     )
 
 
-def crf_partitions(logits: Union[C, D, P], bias: T, semiring: Type[Semiring]) -> Tensor:
+def crf_partitions(logits: Z, bias: T, semiring: Type[Semiring]) -> Tensor:
     bias, head_bias, last_bias = bias
 
     logits = logits.pack()
@@ -54,11 +55,11 @@ def crf_partitions(logits: Union[C, D, P], bias: T, semiring: Type[Semiring]) ->
 
 
 class CrfDistribution(StructuredDistribution):
-    def __init__(self, logits: Union[C, D, P], bias: T) -> None:
+    def __init__(self, logits: Z, bias: T) -> None:
         super(CrfDistribution, self).__init__(logits=logits)
         self.bias = bias
 
-    def log_scores(self, targets: Union[C, D, P]) -> Tensor:
+    def log_scores(self, targets: Z) -> Tensor:
         return crf_scores(
             logits=self.logits, targets=targets,
             bias=self.bias,
@@ -82,7 +83,7 @@ class CrfDistribution(StructuredDistribution):
         )
 
     @lazy_property
-    def argmax(self) -> Union[C, D, P]:
+    def argmax(self) -> Z:
         argmax = super(CrfDistribution, self).argmax.argmax(dim=-1)
         return self.logits._replace(data=argmax)
 
@@ -102,7 +103,7 @@ class CrfDecoder(StructuredDecoder):
         init.zeros_(self.head_bias)
         init.zeros_(self.last_bias)
 
-    def forward(self, logits: Union[C, D, P]) -> CrfDistribution:
+    def forward(self, logits: Z) -> CrfDistribution:
         return CrfDistribution(
             logits=logits,
             bias=(

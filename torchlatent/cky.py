@@ -1,15 +1,15 @@
-from typing import Tuple, Type, Union
+from typing import Tuple, Type
 
 import torch
 from torch import Tensor
 from torch.distributions.utils import lazy_property
-from torchrua import C, D, P
 
 from torchlatent.abc import StructuredDecoder, StructuredDistribution
 from torchlatent.semiring import Div, ExceptionSemiring, Log, Max, Semiring, Xen
+from torchrua import C, Z
 
 
-def cky_scores(logits: C, targets: Union[C, D, P], semiring: Type[Semiring]) -> Tensor:
+def cky_scores(logits: C, targets: Z, semiring: Type[Semiring]) -> Tensor:
     xyz, token_sizes = targets = targets.cat()
     batch_ptr, _ = targets.ptr()
 
@@ -109,7 +109,7 @@ class CkyDistribution(StructuredDistribution):
     def __init__(self, logits: C) -> None:
         super(CkyDistribution, self).__init__(logits=logits)
 
-    def log_scores(self, targets: Union[C, D, P]) -> Tensor:
+    def log_scores(self, targets: Z) -> Tensor:
         return cky_scores(
             logits=self.logits, targets=targets,
             semiring=Log,
@@ -175,19 +175,3 @@ class CkyDecoder(StructuredDecoder):
 
     def forward(self, logits: C) -> CkyDistribution:
         return CkyDistribution(logits=logits)
-
-
-if __name__ == '__main__':
-    from torch_struct import TreeCRF
-
-    num_targets = 17
-    logits1 = C(data=torch.randn((3, 5, 5, num_targets), requires_grad=True), token_sizes=torch.tensor([5, 2, 3]))
-    logits2 = C(data=torch.randn((3, 5, 5, num_targets), requires_grad=True), token_sizes=torch.tensor([5, 2, 3]))
-
-    excepted1 = TreeCRF(logits1.data, logits1.token_sizes)
-    excepted2 = TreeCRF(logits2.data, logits2.token_sizes)
-    print(excepted1.kl(excepted2))
-
-    actual1 = CkyDecoder(num_targets=num_targets)(logits1)
-    actual2 = CkyDecoder(num_targets=num_targets)(logits2)
-    print(actual1.kl(actual2))

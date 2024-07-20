@@ -2,9 +2,9 @@ import torch
 from hypothesis import given, settings
 from torch_struct import TreeCRF
 from torchnyan import BATCH_SIZE, TINY_TOKEN_SIZE, assert_close, assert_grad_close, device, sizes
-from torchrua import C
 
 from torchlatent.cky import CkyDecoder, masked_select
+from torchrua import C
 
 
 @settings(deadline=None)
