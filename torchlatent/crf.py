@@ -21,7 +21,7 @@ def crf_scores(logits: Z, targets: Z, bias: T, semiring: Type[Semiring]) -> Tens
     bias = bias[targets.data.roll(1), targets.data]
 
     batch_ptr, token_ptr = targets.ptr()
-    logits = logits.left().data[batch_ptr, token_ptr, targets.data]
+    logits ,_= logits[batch_ptr, token_ptr, targets.data]
     logits = semiring.segment_prod(logits, sizes=token_sizes)
 
     token_sizes = torch.stack([torch.ones_like(token_sizes), token_sizes - 1], dim=-1)
@@ -41,17 +41,17 @@ def crf_partitions(logits: Z, bias: T, semiring: Type[Semiring]) -> Tensor:
     logits, batch_sizes, _, _ = logits
 
     _, *batch_sizes = sections = batch_sizes.detach().cpu().tolist()
-    emission, *logits = torch.split(logits, sections, dim=0)
+    logit, *logits = torch.split(logits, sections, dim=0)
 
-    charts = [semiring.mul(head_bias, emission)]
-    for emission, batch_size in zip(logits, batch_sizes):
+    charts = [semiring.mul(head_bias, logit)]
+    for logit, batch_size in zip(logits, batch_sizes):
         charts.append(semiring.mul(
             semiring.bmm(charts[-1][:batch_size], bias),
-            emission,
+            logit,
         ))
 
-    emission = torch.cat(charts, dim=0)[last_indices]
-    return semiring.sum(semiring.mul(emission, last_bias), dim=-1)
+    logit = torch.cat(charts, dim=0)[last_indices]
+    return semiring.sum(semiring.mul(logit, last_bias), dim=-1)
 
 
 class CrfDistribution(StructuredDistribution):
